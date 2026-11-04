@@ -74,6 +74,9 @@ jobs:
             @{ title = "점심 약속"; date = $tm.ToString("yyyy-MM-dd"); time = "12:30"; memo = "" }
           )
 
+          # 실행기 콘솔 창 등을 모두 최소화
+          (New-Object -ComObject Shell.Application).MinimizeAll(); Start-Sleep 2
+
           # 1) 실행 직후: 바탕화면 + 오늘 일정 인사
           Start-Process $exe; Start-Sleep 5; Shot "01-desktop-greeting"
 
@@ -92,6 +95,9 @@ jobs:
           Keys @(0x5B, 0x44); Start-Sleep 2  # 메모장 다시 보이게
           Start-Process $exe; Start-Sleep 4; Shot "05-alert-a"
           Start-Sleep -Milliseconds 270; Shot "05-alert-b"
+
+          # 6) 알림 중 캐릭터 클릭 → 알림 끝 + 달력
+          Click ($px + 94) ($py + 120); Start-Sleep 3; Shot "06-alert-click-calendar"
 
           Get-Process CharacterPlan -ErrorAction SilentlyContinue | Select-Object Id, WorkingSet64 | Format-Table
           if (Test-Path "$data\error.log") { "=== error.log ==="; Get-Content "$data\error.log" }
