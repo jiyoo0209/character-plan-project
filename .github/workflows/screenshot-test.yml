@@ -1,0 +1,108 @@
+name: 화면 테스트
+
+on:
+  push:
+    branches: [claude/screenshot-test]
+
+permissions:
+  contents: write
+
+jobs:
+  screenshot:
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: 한국 시간대
+        run: tzutil /s "Korea Standard Time"
+
+      - name: exe 빌드
+        run: .\build.ps1
+
+      - name: 실행하고 화면 찍기
+        run: |
+          Add-Type -AssemblyName System.Windows.Forms, System.Drawing
+          Add-Type @"
+          using System; using System.Runtime.InteropServices;
+          public static class W {
+            [DllImport("user32.dll")] public static extern bool SetCursorPos(int x, int y);
+            [DllImport("user32.dll")] public static extern void mouse_event(uint f, uint x, uint y, uint d, UIntPtr e);
+            [DllImport("user32.dll")] public static extern void keybd_event(byte vk, byte sc, uint f, UIntPtr e);
+          }
+          "@
+          New-Item -ItemType Directory -Force shots | Out-Null
+          $b = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds
+          "screen: $($b.Width)x$($b.Height)"
+          function Shot($name) {
+            $bmp = New-Object System.Drawing.Bitmap $b.Width, $b.Height
+            $g = [System.Drawing.Graphics]::FromImage($bmp)
+            $g.CopyFromScreen($b.Location, [System.Drawing.Point]::Empty, $b.Size)
+            $bmp.Save("shots\$name.png"); $g.Dispose(); $bmp.Dispose(); "shot $name"
+          }
+          function Keys([byte[]]$vks) {
+            foreach ($k in $vks) { [W]::keybd_event($k, 0, 0, [UIntPtr]::Zero) }
+            [array]::Reverse($vks)
+            foreach ($k in $vks) { [W]::keybd_event($k, 0, 2, [UIntPtr]::Zero) }
+          }
+          function Click($x, $y) {
+            [W]::SetCursorPos($x, $y); Start-Sleep -Milliseconds 200
+            [W]::mouse_event(2, 0, 0, 0, [UIntPtr]::Zero); Start-Sleep -Milliseconds 80
+            [W]::mouse_event(4, 0, 0, 0, [UIntPtr]::Zero)
+          }
+
+          $dir = "dist\CharacterPlan"; $exe = "$dir\CharacterPlan.exe"; $data = "$dir\data"
+          New-Item -ItemType Directory -Force $data | Out-Null
+          $px = $b.Width - 330; $py = $b.Height - 330
+          @{ user_name = "지유"; lead_minutes = 10; character_size = 160; pos_x = $px; pos_y = $py } |
+            ConvertTo-Json | Set-Content -Encoding utf8NoBOM "$data\settings.json"
+
+          function Schedules($items) {
+            @{ version = 1; schedules = $items } | ConvertTo-Json -Depth 5 |
+              Set-Content -Encoding utf8NoBOM "$data\schedules.json"
+          }
+          $now = Get-Date
+          $t1 = $now.AddMinutes(40); $tm = $now.AddDays(1)
+          Schedules @(
+            @{ title = "회의"; date = $t1.ToString("yyyy-MM-dd"); time = $t1.ToString("HH:mm"); memo = "3층 회의실" },
+            @{ title = "점심 약속"; date = $tm.ToString("yyyy-MM-dd"); time = "12:30"; memo = "" }
+          )
+
+          # 1) 실행 직후: 바탕화면 + 오늘 일정 인사
+          Start-Process $exe; Start-Sleep 5; Shot "01-desktop-greeting"
+
+          # 2) 캐릭터 클릭 → 달력
+          Click ($px + 94) ($py + 120); Start-Sleep 3; Shot "02-calendar"
+          Keys @(0x12, 0x73)  # Alt+F4 로 달력 닫기
+          Start-Sleep 1
+
+          # 3) 다른 창이 덮었을 때 / 4) Win+D
+          Start-Process notepad -WindowStyle Maximized; Start-Sleep 3; Shot "03-covered-by-window"
+          Keys @(0x5B, 0x44); Start-Sleep 3; Shot "04-after-win-d"
+
+          # 5) 일정 알림 (9분 뒤 일정으로 다시 실행, 창이 덮인 상태)
+          Stop-Process -Name CharacterPlan -Force; Start-Sleep 1
+          $t2 = $now.AddMinutes(9 + ((Get-Date) - $now).TotalMinutes)
+          Schedules @(@{ title = "회의"; date = $t2.ToString("yyyy-MM-dd"); time = $t2.ToString("HH:mm"); memo = "" })
+          Keys @(0x5B, 0x44); Start-Sleep 2  # 메모장 다시 보이게
+          Start-Process $exe; Start-Sleep 4; Shot "05-alert-a"
+          Start-Sleep -Milliseconds 270; Shot "05-alert-b"
+
+          Get-Process CharacterPlan -ErrorAction SilentlyContinue | Select-Object Id, WorkingSet64 | Format-Table
+          if (Test-Path "$data\error.log") { "=== error.log ==="; Get-Content "$data\error.log" }
+          Get-Content "$data\schedules.json"
+
+      - name: 스크린샷 커밋
+        if: always()
+        run: |
+          git config user.name "github-actions"
+          git config user.email "github-actions@users.noreply.github.com"
+          git add -f shots
+          git commit -m "screenshots" -q
+          git push
