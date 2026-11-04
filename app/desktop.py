@@ -77,10 +77,20 @@ def set_topmost(hwnd: int, on: bool) -> None:
         return
     flags = SWP_NOSIZE | SWP_NOMOVE | SWP_NOACTIVATE
     if on:
+        # 바탕화면 소유 상태에서는 맨 위로 올라가지 않으므로 잠시 소유를 풀고 올린다
+        _set_long(hwnd, GWLP_HWNDPARENT, 0)
         user32.SetWindowPos(hwnd, HWND_TOPMOST, 0, 0, 0, 0, flags)
     else:
         user32.SetWindowPos(hwnd, HWND_NOTOPMOST, 0, 0, 0, 0, flags)
-        user32.SetWindowPos(hwnd, HWND_BOTTOM, 0, 0, 0, 0, flags)
+        pin_to_desktop(hwnd)
+        send_to_bottom(hwnd)
+
+
+def send_to_bottom(hwnd: int) -> None:
+    """일반 프로그램 창들 아래로 내린다 (바탕화면 아이콘보다는 위)."""
+    if not IS_WINDOWS or not hwnd:
+        return
+    user32.SetWindowPos(hwnd, HWND_BOTTOM, 0, 0, 0, 0, SWP_NOSIZE | SWP_NOMOVE | SWP_NOACTIVATE)
 
 
 def beep() -> None:
