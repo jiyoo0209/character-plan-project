@@ -24,7 +24,9 @@ class CharacterWidget(QWidget):
     def __init__(self, image: Path, height: int):
         super().__init__(
             None,
-            Qt.WindowType.FramelessWindowHint | Qt.WindowType.Tool | Qt.WindowType.WindowStaysOnBottomHint,
+            # 'WindowStaysOnBottomHint' 는 쓰지 않는다: Windows 에서 Qt 가 매번 맨 아래로 끌어내려
+            # 알림 때 위로 올릴 수가 없다. 쌓임 순서는 desktop.py 에서 직접 관리한다.
+            Qt.WindowType.FramelessWindowHint | Qt.WindowType.Tool,
         )
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
         self.setAttribute(Qt.WidgetAttribute.WA_ShowWithoutActivating)

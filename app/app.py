@@ -68,6 +68,7 @@ class CharacterPlanApp:
         self.character.show()
         self._hwnd = int(self.character.winId())
         desktop.pin_to_desktop(self._hwnd)
+        desktop.send_to_bottom(self._hwnd)
 
         self.watchdog = QTimer()
         self.watchdog.timeout.connect(self._watch)
@@ -122,10 +123,11 @@ class CharacterPlanApp:
         self.bubble.dismiss()
         self.settings.pos_x, self.settings.pos_y = pos.x(), pos.y()
         self.settings.save()
+        desktop.send_to_bottom(self._hwnd)  # 끌면서 앞으로 나온 창을 다시 아래로
 
     # ---- 바탕화면 고정 감시 ----
     def _watch(self) -> None:
-        if self.hidden_by_user:
+        if self.hidden_by_user or self.character.mode == "alert":  # 알림 중엔 맨 위에 있어야 함
             return
         desktop.pin_to_desktop(self._hwnd)  # 탐색기 재시작 대비
         desktop.ensure_visible(self._hwnd)
