@@ -1,0 +1,11 @@
+__pycache__/
+*.pyc
+.venv/
+venv/
+build/
+dist/
+installer_output/
+*.spec
+
+# 사용자 데이터 (일정, 설정, 로그)
+data/
