@@ -5,7 +5,7 @@ import math
 from pathlib import Path
 
 from PySide6.QtCore import QElapsedTimer, QPoint, QPointF, QRect, Qt, QTimer, Signal
-from PySide6.QtGui import QColor, QGuiApplication, QPainter, QPainterPath, QPixmap
+from PySide6.QtGui import QColor, QGuiApplication, QMovie, QPainter, QPainterPath, QPixmap
 from PySide6.QtWidgets import QHBoxLayout, QLabel, QWidget
 
 FRAME_MS = 33  # 약 30fps
@@ -29,7 +29,10 @@ class CharacterWidget(QWidget):
         self.setAttribute(Qt.WidgetAttribute.WA_ShowWithoutActivating)
         self.setWindowTitle("character")
 
-        self._pix = QPixmap()
+        self._pix = QPixmap()  # 정지 이미지 (애니메이션이면 첫 프레임, 크기 기준)
+        self._movie: QMovie | None = None  # GIF 등 애니메이션 이미지
+        self._frames: dict[int, QPixmap] = {}  # 크기 조절한 프레임 캐시
+        self._height = height
         self.mode = "idle"  # idle | alert
         self._poke_until = 0.0
         self._clock = QElapsedTimer()
@@ -46,7 +49,23 @@ class CharacterWidget(QWidget):
 
     # ---- 외형 ----
     def set_image(self, image: Path, height: int) -> None:
-        src = QPixmap(str(image))
+        if self._movie is not None:
+            self._movie.stop()
+            self._movie.deleteLater()
+            self._movie = None
+        self._frames = {}
+        self._height = height
+
+        movie = QMovie(str(image))
+        if movie.isValid() and movie.frameCount() != 1:  # 움직이는 GIF/WebP
+            movie.setCacheMode(QMovie.CacheMode.CacheAll)
+            movie.jumpToFrame(0)
+            src = movie.currentPixmap()
+            self._movie = movie
+            movie.start()
+        else:
+            movie.deleteLater()
+            src = QPixmap(str(image))
         if src.isNull():
             raise FileNotFoundError(image)
         self._pix = src.scaledToHeight(height, Qt.TransformationMode.SmoothTransformation)
@@ -59,6 +78,16 @@ class CharacterWidget(QWidget):
         """화면 좌표 기준 캐릭터 그림 영역 (말풍선 위치 계산용)."""
         g = self.geometry()
         return QRect(g.x() + PAD_SIDE, g.y() + PAD_TOP, self._pix.width(), self._pix.height())
+
+    def _current_pixmap(self) -> QPixmap:
+        if self._movie is None:
+            return self._pix
+        n = self._movie.currentFrameNumber()
+        pm = self._frames.get(n)
+        if pm is None:
+            pm = self._movie.currentPixmap().scaledToHeight(self._height, Qt.TransformationMode.SmoothTransformation)
+            self._frames[n] = pm
+        return pm
 
     # ---- 동작 ----
     def start_alert(self) -> None:
@@ -104,7 +133,8 @@ class CharacterWidget(QWidget):
         p.translate(self.width() / 2, self.height() - PAD_BOTTOM - lift)
         p.rotate(angle)
         p.scale(sx, sy)
-        p.drawPixmap(QPointF(-self._pix.width() / 2, -self._pix.height()), self._pix)
+        pix = self._current_pixmap()
+        p.drawPixmap(QPointF(-pix.width() / 2, -pix.height()), pix)
         p.end()
 
     # ---- 마우스: 클릭하면 달력, 끌면 이동, 우클릭 메뉴 ----

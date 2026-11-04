@@ -52,7 +52,8 @@ def _resolve_data_dir() -> Path:
 
 DATA_DIR = _resolve_data_dir()
 ASSETS_DIR = resource_dir() / "assets"
-DEFAULT_CHARACTER = ASSETS_DIR / "character.png"
+# 기본 캐릭터: assets/character.gif 가 있으면 그것을, 없으면 character.png
+DEFAULT_CHARACTER_CANDIDATES = (ASSETS_DIR / "character.gif", ASSETS_DIR / "character.png")
 ICON_PATH = ASSETS_DIR / "icon.ico"
 SCHEDULES_FILE = DATA_DIR / "schedules.json"
 SETTINGS_FILE = DATA_DIR / "settings.json"
@@ -102,4 +103,4 @@ class Settings:
                 p = DATA_DIR / p
             if p.exists():
                 return p
-        return DEFAULT_CHARACTER
+        return next((p for p in DEFAULT_CHARACTER_CANDIDATES if p.exists()), DEFAULT_CHARACTER_CANDIDATES[-1])

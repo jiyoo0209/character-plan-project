@@ -91,7 +91,7 @@ class SettingsDialog(QDialog):
         lay.addWidget(buttons)
 
     def _update_image_label(self) -> None:
-        self.image_label.setText(Path(self._image).name if self._image else "기본 (새싹이)")
+        self.image_label.setText(Path(self._image).name if self._image else "기본 캐릭터")
 
     def _pick_image(self) -> None:
         path, _ = QFileDialog.getOpenFileName(self, "캐릭터 이미지 선택", "", "이미지 (*.png *.webp *.gif)")
