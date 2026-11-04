@@ -92,7 +92,7 @@ jobs:
           Stop-Process -Name CharacterPlan -Force; Start-Sleep 1
           $t2 = $now.AddMinutes(9 + ((Get-Date) - $now).TotalMinutes)
           Schedules @(@{ title = "회의"; date = $t2.ToString("yyyy-MM-dd"); time = $t2.ToString("HH:mm"); memo = "" })
-          Keys @(0x5B, 0x44); Start-Sleep 2  # 메모장 다시 보이게
+          Start-Process notepad -WindowStyle Maximized; Start-Sleep 3  # 화면을 덮는 창
           Start-Process $exe; Start-Sleep 4; Shot "05-alert-a"
           Start-Sleep -Milliseconds 270; Shot "05-alert-b"
 
