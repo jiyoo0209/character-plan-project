@@ -1,11 +1,12 @@
 """바탕화면에 떠 있는 캐릭터 창과 말풍선."""
 from __future__ import annotations
 
+import bisect
 import math
 from pathlib import Path
 
 from PySide6.QtCore import QElapsedTimer, QPoint, QPointF, QRect, Qt, QTimer, Signal
-from PySide6.QtGui import QColor, QGuiApplication, QMovie, QPainter, QPainterPath, QPixmap
+from PySide6.QtGui import QColor, QGuiApplication, QImageReader, QPainter, QPainterPath, QPixmap
 from PySide6.QtWidgets import QHBoxLayout, QLabel, QWidget
 
 FRAME_MS = 33  # 약 30fps
@@ -30,9 +31,8 @@ class CharacterWidget(QWidget):
         self.setWindowTitle("character")
 
         self._pix = QPixmap()  # 정지 이미지 (애니메이션이면 첫 프레임, 크기 기준)
-        self._movie: QMovie | None = None  # GIF 등 애니메이션 이미지
-        self._frames: dict[int, QPixmap] = {}  # 크기 조절한 프레임 캐시
-        self._height = height
+        self._frames: list[QPixmap] = []  # 애니메이션 프레임 (표시 크기로 미리 축소)
+        self._frame_ends: list[int] = []  # 각 프레임이 끝나는 누적 시각(ms)
         self.mode = "idle"  # idle | alert
         self._poke_until = 0.0
         self._clock = QElapsedTimer()
@@ -49,26 +49,14 @@ class CharacterWidget(QWidget):
 
     # ---- 외형 ----
     def set_image(self, image: Path, height: int) -> None:
-        if self._movie is not None:
-            self._movie.stop()
-            self._movie.deleteLater()
-            self._movie = None
-        self._frames = {}
-        self._height = height
-
-        movie = QMovie(str(image))
-        if movie.isValid() and movie.frameCount() != 1:  # 움직이는 GIF/WebP
-            movie.setCacheMode(QMovie.CacheMode.CacheAll)
-            movie.jumpToFrame(0)
-            src = movie.currentPixmap()
-            self._movie = movie
-            movie.start()
+        self._frames, self._frame_ends = self._load_frames(image, height)
+        if self._frames:
+            self._pix = self._frames[0]
         else:
-            movie.deleteLater()
             src = QPixmap(str(image))
-        if src.isNull():
-            raise FileNotFoundError(image)
-        self._pix = src.scaledToHeight(height, Qt.TransformationMode.SmoothTransformation)
+            if src.isNull():
+                raise FileNotFoundError(image)
+            self._pix = src.scaledToHeight(height, Qt.TransformationMode.SmoothTransformation)
         old_bottom_center = self.geometry().center().x(), self.geometry().bottom()
         self.setFixedSize(self._pix.width() + PAD_SIDE * 2, self._pix.height() + PAD_TOP + PAD_BOTTOM)
         if self.isVisible():  # 크기가 바뀌어도 발 위치는 유지
@@ -79,15 +67,31 @@ class CharacterWidget(QWidget):
         g = self.geometry()
         return QRect(g.x() + PAD_SIDE, g.y() + PAD_TOP, self._pix.width(), self._pix.height())
 
+    @staticmethod
+    def _load_frames(image: Path, height: int) -> tuple[list[QPixmap], list[int]]:
+        """움직이는 GIF/WebP 면 모든 프레임을 표시 크기로 줄여 담는다.
+        원본 해상도 프레임을 계속 들고 있지 않으므로 큰 GIF 도 메모리를 적게 쓴다."""
+        reader = QImageReader(str(image))
+        if not reader.supportsAnimation() or reader.imageCount() == 1:
+            return [], []
+        frames, ends, total = [], [], 0
+        while reader.canRead():
+            img = reader.read()
+            if img.isNull():
+                break
+            delay = reader.nextImageDelay()  # 파일에 적힌 이 프레임의 표시 시간
+            frames.append(
+                QPixmap.fromImage(img).scaledToHeight(height, Qt.TransformationMode.SmoothTransformation)
+            )
+            total += delay if delay > 10 else 100  # 지연 0 인 GIF 는 브라우저처럼 100ms 로
+            ends.append(total)
+        return (frames, ends) if len(frames) > 1 else ([], [])
+
     def _current_pixmap(self) -> QPixmap:
-        if self._movie is None:
+        if not self._frames:
             return self._pix
-        n = self._movie.currentFrameNumber()
-        pm = self._frames.get(n)
-        if pm is None:
-            pm = self._movie.currentPixmap().scaledToHeight(self._height, Qt.TransformationMode.SmoothTransformation)
-            self._frames[n] = pm
-        return pm
+        t = self._clock.elapsed() % self._frame_ends[-1]
+        return self._frames[bisect.bisect_right(self._frame_ends, t)]
 
     # ---- 동작 ----
     def start_alert(self) -> None:
