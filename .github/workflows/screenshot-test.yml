@@ -52,7 +52,7 @@ jobs:
             foreach ($k in $vks) { [W]::keybd_event($k, 0, 2, [UIntPtr]::Zero) }
           }
           function Click($x, $y) {
-            [W]::SetCursorPos($x, $y); Start-Sleep -Milliseconds 200
+            [W]::SetCursorPos($x, $y) | Out-Null; Start-Sleep -Milliseconds 200
             [W]::mouse_event(2, 0, 0, 0, [UIntPtr]::Zero); Start-Sleep -Milliseconds 80
             [W]::mouse_event(4, 0, 0, 0, [UIntPtr]::Zero)
           }
@@ -79,8 +79,7 @@ jobs:
 
           # 2) 캐릭터 클릭 → 달력
           Click ($px + 94) ($py + 120); Start-Sleep 3; Shot "02-calendar"
-          Keys @(0x12, 0x73)  # Alt+F4 로 달력 닫기
-          Start-Sleep 1
+          Start-Sleep 1  # 달력은 열어 둔 채로 다음 장면 (메모장이 덮음)
 
           # 3) 다른 창이 덮었을 때 / 4) Win+D
           Start-Process notepad -WindowStyle Maximized; Start-Sleep 3; Shot "03-covered-by-window"
