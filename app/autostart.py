@@ -48,7 +48,8 @@ def set_enabled(enabled: bool) -> None:
                 pass
 
 
-def refresh_path() -> None:
-    """이미 켜져 있으면 현재 실행 경로로 갱신 (설치 폴더를 옮긴 경우 대비)."""
-    if is_enabled():
+def ensure_enabled() -> None:
+    """설치본(exe)은 항상 자동 실행 등록 + 현재 경로로 갱신.
+    소스 실행(개발 중)은 이미 등록돼 있을 때만 경로를 갱신한다."""
+    if is_frozen() or is_enabled():
         set_enabled(True)

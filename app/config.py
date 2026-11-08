@@ -52,9 +52,9 @@ def _resolve_data_dir() -> Path:
 
 DATA_DIR = _resolve_data_dir()
 ASSETS_DIR = resource_dir() / "assets"
-# 기본 캐릭터: assets/character.gif 가 있으면 그것을, 없으면 character.png
-DEFAULT_CHARACTER_CANDIDATES = (ASSETS_DIR / "character.gif", ASSETS_DIR / "character.png")
+CHARACTERS_DIR = ASSETS_DIR / "characters"
 ICON_PATH = ASSETS_DIR / "icon.ico"
+FONTS_DIR = ASSETS_DIR / "fonts"  # 앱과 같이 배포하는 폰트 (*.ttf, *.otf)
 SCHEDULES_FILE = DATA_DIR / "schedules.json"
 SETTINGS_FILE = DATA_DIR / "settings.json"
 
@@ -70,14 +70,51 @@ def atomic_write_json(path: Path, data) -> None:
     os.replace(tmp, path)
 
 
+CHARACTER_SIZE = 160  # 캐릭터 높이(px), 고정
+BUBBLE_SECONDS = 8  # 일반 말풍선(인사 등) 표시 시간, 고정
+
+# 고를 수 있는 캐릭터: (id, 이름). 이미지는 assets/characters/<id>.gif (또는 .png/.webp)
+CHARACTERS = (
+    ("chiikawa", "치이카와"),
+    ("usagi", "우사기"),
+    ("kurimanju", "쿠리만쥬"),
+)
+DEFAULT_CHARACTER = CHARACTERS[0][0]
+_IMAGE_EXTS = (".gif", ".webp", ".png")
+
+
+def _find_image(stem: str) -> Path | None:
+    for ext in _IMAGE_EXTS:
+        p = CHARACTERS_DIR / f"{stem}{ext}"
+        if p.exists():
+            return p
+    return None
+
+
+def character_image(cid: str) -> Path | None:
+    """바탕화면 캐릭터 이미지 (<id>.gif). 없으면 None (선택 창에서 '준비 중'으로 표시)."""
+    return _find_image(cid)
+
+
+def pick_image(cid: str) -> Path | None:
+    """설정 창 고르기 카드에 쓰는 이미지 (<id>_pick.gif). 없으면 바탕화면 이미지를 대신 쓴다."""
+    return _find_image(f"{cid}_pick") or character_image(cid)
+
+
+def character_path(cid: str) -> Path:
+    """고른 캐릭터 이미지. 파일이 없으면 이미지가 있는 첫 캐릭터로 대체."""
+    for c in (cid, *(c for c, _ in CHARACTERS)):
+        p = character_image(c)
+        if p:
+            return p
+    raise FileNotFoundError(f"캐릭터 이미지가 없습니다: {CHARACTERS_DIR}")
+
+
 @dataclass
 class Settings:
     user_name: str = ""  # 캐릭터가 불러줄 이름
     lead_minutes: int = 10  # 일정 몇 분 전에 미리 알려줄지 (0 이면 정각만)
-    character_size: int = 160  # 캐릭터 높이(px)
-    character_image: str = ""  # 비어 있으면 기본 캐릭터
-    bubble_seconds: int = 8  # 일반 말풍선 표시 시간
-    sound: bool = True  # 알림 시 효과음
+    character: str = DEFAULT_CHARACTER  # CHARACTERS 의 id
     pos_x: int | None = None  # 캐릭터 위치 (None 이면 화면 오른쪽 아래)
     pos_y: int | None = None
 
@@ -90,17 +127,9 @@ class Settings:
         known = {f.name for f in fields(cls)}
         s = cls(**{k: v for k, v in raw.items() if k in known})
         s.lead_minutes = max(0, int(s.lead_minutes))
-        s.character_size = min(400, max(60, int(s.character_size)))
+        if s.character not in {c for c, _ in CHARACTERS}:
+            s.character = DEFAULT_CHARACTER
         return s
 
     def save(self) -> None:
         atomic_write_json(SETTINGS_FILE, asdict(self))
-
-    def character_path(self) -> Path:
-        if self.character_image:
-            p = Path(self.character_image)
-            if not p.is_absolute():
-                p = DATA_DIR / p
-            if p.exists():
-                return p
-        return next((p for p in DEFAULT_CHARACTER_CANDIDATES if p.exists()), DEFAULT_CHARACTER_CANDIDATES[-1])

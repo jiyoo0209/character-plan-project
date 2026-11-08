@@ -1,0 +1,3 @@
+ribbon_*.png — Noto Emoji "ribbon" (U+1F380), 캐릭터 테마 색으로 다시 칠함
+Copyright Google LLC. Licensed under the Apache License, Version 2.0.
+https://github.com/googlefonts/noto-emoji

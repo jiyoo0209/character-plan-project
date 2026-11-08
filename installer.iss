@@ -27,7 +27,6 @@ CloseApplications=yes
 Name: "korean"; MessagesFile: "compiler:Languages\Korean.isl"
 
 [Tasks]
-Name: "autostart"; Description: "Windows 시작 시 자동 실행"; GroupDescription: "추가 옵션:"
 Name: "desktopicon"; Description: "바탕화면 바로가기 만들기"; GroupDescription: "추가 옵션:"; Flags: unchecked
 
 [Files]
@@ -42,8 +41,8 @@ Name: "{group}\제거"; Filename: "{uninstallexe}"
 Name: "{userdesktop}\캐릭터 일정 비서"; Filename: "{app}\{#AppExe}"; Tasks: desktopicon
 
 [Registry]
-; 앱 설정 화면의 '자동 실행'과 같은 값을 사용
-Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: string; ValueName: "{#AppName}"; ValueData: """{app}\{#AppExe}"""; Tasks: autostart; Flags: uninsdeletevalue
+; 자동 실행은 항상 켜짐 (앱도 실행될 때마다 같은 값을 다시 등록)
+Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: string; ValueName: "{#AppName}"; ValueData: """{app}\{#AppExe}"""; Flags: uninsdeletevalue
 Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueName: "{#AppName}"; Flags: dontcreatekey uninsdeletevalue
 
 [Run]

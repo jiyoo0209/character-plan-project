@@ -6,13 +6,23 @@ import traceback
 from datetime import datetime
 
 from PySide6.QtCore import QLockFile, QPoint, Qt, QTimer
-from PySide6.QtGui import QAction, QFont, QGuiApplication, QIcon
+from PySide6.QtGui import QAction, QFont, QFontDatabase, QGuiApplication, QIcon
 from PySide6.QtWidgets import QApplication, QMenu, QSystemTrayIcon
 
 from . import autostart, desktop
 from .calendar_window import CalendarWindow
 from .character import CharacterWidget, SpeechBubble
-from .config import APP_TITLE, DATA_DIR, ICON_PATH, SETTINGS_FILE, Settings
+from .config import (
+    APP_TITLE,
+    BUBBLE_SECONDS,
+    CHARACTER_SIZE,
+    DATA_DIR,
+    FONTS_DIR,
+    ICON_PATH,
+    SETTINGS_FILE,
+    Settings,
+    character_path,
+)
 from .messages import call_name
 from .notifier import Notifier
 from .settings_dialog import SettingsDialog
@@ -20,6 +30,12 @@ from .storage import ScheduleStore
 
 WATCHDOG_MS = 1500
 ALERT_SECONDS = 60  # 알림 말풍선은 클릭하거나 이 시간이 지나면 닫힘
+
+
+def _load_fonts() -> None:
+    """assets/fonts 의 폰트를 등록한다 (PC 에 설치돼 있지 않아도 쓸 수 있게)."""
+    for f in sorted(FONTS_DIR.glob("*.[ot]tf")):
+        QFontDatabase.addApplicationFont(str(f))
 
 
 def _install_error_log() -> None:
@@ -44,7 +60,7 @@ class CharacterPlanApp:
         self.notifier = Notifier(self.store, lambda: self.settings)
         self.hidden_by_user = False
 
-        self.character = CharacterWidget(self.settings.character_path(), self.settings.character_size)
+        self.character = CharacterWidget(character_path(self.settings.character), CHARACTER_SIZE)
         self.bubble = SpeechBubble()
         self.calendar = CalendarWindow(self.store)
         icon = QIcon(str(ICON_PATH))
@@ -74,7 +90,7 @@ class CharacterPlanApp:
         self.watchdog.timeout.connect(self._watch)
         self.watchdog.start(WATCHDOG_MS)
 
-        autostart.refresh_path()
+        autostart.ensure_enabled()  # 자동 실행은 항상 켜 둔다
         self.notifier.start()
 
         if first_run:
@@ -136,15 +152,14 @@ class CharacterPlanApp:
     def say(self, text: str, seconds: float | None = None) -> None:
         if self.hidden_by_user:
             return
-        self.bubble.say(text, self.character.body_rect(), seconds or self.settings.bubble_seconds)
+        self.bubble.say(text, self.character.body_rect(), seconds or BUBBLE_SECONDS)
 
     def alert(self, text: str) -> None:
         if self.hidden_by_user:
             self.act_hide.setChecked(False)  # 숨겨 둔 상태여도 일정 알림은 보여 준다
         self.character.start_alert()
         desktop.set_topmost(self._hwnd, True)
-        if self.settings.sound:
-            desktop.beep()
+        desktop.beep()
         self.say(text, ALERT_SECONDS)
 
     def _end_alert(self) -> None:
@@ -174,8 +189,7 @@ class CharacterPlanApp:
                 dlg.apply()
             else:
                 self.settings.save()  # 첫 실행에서 취소해도 다음엔 묻지 않도록
-            self.character.set_image(self.settings.character_path(), self.settings.character_size)
-            self.character.update()
+            self.character.set_image(character_path(self.settings.character), CHARACTER_SIZE)
 
 
 def run() -> int:
@@ -185,6 +199,7 @@ def run() -> int:
     qapp.setQuitOnLastWindowClosed(False)  # 달력 창을 닫아도 계속 실행
     if sys.platform == "win32":
         qapp.setFont(QFont("Malgun Gothic", 9))
+    _load_fonts()
     _install_error_log()
 
     # 중복 실행 방지
