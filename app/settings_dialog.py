@@ -32,7 +32,6 @@ QLabel {{ color: {t.text}; }}
 QLabel#title {{ font-size: 20px; font-weight: bold; color: {t.accent_deep}; }}
 QLabel#subtitle {{ font-size: 13px; color: {t.subtext}; }}
 QLabel#section {{ font-size: 13px; font-weight: bold; color: {t.text}; }}
-QLabel#hint {{ font-size: 12px; color: {t.accent_deep}; }}
 QLineEdit {{
     background: {t.card}; color: {t.text}; font-size: 14px;
     border: 2px solid {t.line}; border-radius: 16px; padding: 7px 14px;
@@ -114,7 +113,7 @@ class CharacterCard(QAbstractButton):
         self._pix = QPixmap()
         self._size = QSize()  # 그림 표시 크기 (선명하게 2배로 디코딩해서 줄여 그림)
         self.theme = DEFAULT_THEME
-        self.available = available  # 바탕화면 그림이 없으면 테마만 미리 볼 수 있음
+        self.available = available  # 그림이 하나도 없으면 고를 수 없음
         self._loops_left = 0  # 남은 재생 바퀴
         self._frames_played = 0
         self._boing = 1.0  # 뽀잉 진행도 (1 이면 멈춤)
@@ -122,8 +121,7 @@ class CharacterCard(QAbstractButton):
         self._anim.setEasingCurve(QEasingCurve.Type.Linear)
         self._anim.valueChanged.connect(self._on_boing)
 
-        if not available:
-            self.setToolTip(f"assets/characters/{cid}.gif 파일을 넣으면 고를 수 있어요")
+        self.setEnabled(available)
         if image is not None:
             reader = QImageReader(str(image))
             self._size = reader.size().scaled(QSize(self.IMG, self.IMG), Qt.AspectRatioMode.KeepAspectRatio)
@@ -197,7 +195,7 @@ class CharacterCard(QAbstractButton):
         p.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
         on = self.isChecked()
         t = self.theme
-        if not self.available and not on:
+        if not self.available:
             p.setOpacity(0.55)
 
         # 카드
@@ -235,12 +233,12 @@ class CharacterCard(QAbstractButton):
 
         # 이름
         f = QFont(self.font())
-        f.setPixelSize(13 if self.available else 12)
+        f.setPixelSize(13)
         f.setBold(on)
         p.setFont(f)
         p.setPen(QColor(t.accent_deep if on else t.text))
         name_box = QRectF(r.left(), box.bottom() + 6, r.width(), 22)
-        p.drawText(name_box, Qt.AlignmentFlag.AlignCenter, self.text() if self.available else f"{self.text()} (준비 중)")
+        p.drawText(name_box, Qt.AlignmentFlag.AlignCenter, self.text())
 
         # 고른 표시: 오른쪽 위 분홍 동그라미 + 체크
         if on:
@@ -278,11 +276,6 @@ class SettingsDialog(QDialog):
             card = CharacterCard(cid, name, pick_image(cid), character_image(cid) is not None)
             self.cards.addButton(card)
             card_row.addWidget(card)
-        self.hint = QLabel("아직 그림이 없는 친구라 색만 미리 볼 수 있어.")
-        self.hint.setObjectName("hint")
-        sp = self.hint.sizePolicy()
-        sp.setRetainSizeWhenHidden(True)  # 안내 문구가 나타나도 창 높이가 출렁이지 않게
-        self.hint.setSizePolicy(sp)
 
         # 이름
         self.name = QLineEdit(settings.user_name)
@@ -332,7 +325,6 @@ class SettingsDialog(QDialog):
         lay.addSpacing(14)
         lay.addWidget(self._section("같이 지낼 친구"))
         lay.addLayout(card_row)
-        lay.addWidget(self.hint)
         lay.addSpacing(14)
         lay.addWidget(self._section("뭐라고 불러줄까?"))
         lay.addWidget(self.name)
@@ -360,9 +352,6 @@ class SettingsDialog(QDialog):
         if not on:
             return
         self.apply_theme(theme_for(card.cid))
-        # 그림이 없는 캐릭터는 테마만 미리 보기: 저장은 막는다
-        self.hint.setVisible(not card.available)
-        self.ok.setEnabled(card.available)
 
     def apply_theme(self, t: Theme) -> None:
         self.setStyleSheet(build_style(t))

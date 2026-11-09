@@ -92,13 +92,13 @@ def _find_image(stem: str) -> Path | None:
 
 
 def character_image(cid: str) -> Path | None:
-    """바탕화면 캐릭터 이미지 (<id>.gif). 없으면 None (선택 창에서 '준비 중'으로 표시)."""
-    return _find_image(cid)
+    """바탕화면 캐릭터 이미지 (<id>.gif). 없으면 고르기 이미지(<id>_pick.gif)로 대신, 둘 다 없으면 None."""
+    return _find_image(cid) or _find_image(f"{cid}_pick")
 
 
 def pick_image(cid: str) -> Path | None:
     """설정 창 고르기 카드에 쓰는 이미지 (<id>_pick.gif). 없으면 바탕화면 이미지를 대신 쓴다."""
-    return _find_image(f"{cid}_pick") or character_image(cid)
+    return _find_image(f"{cid}_pick") or _find_image(cid)
 
 
 def character_path(cid: str) -> Path:
