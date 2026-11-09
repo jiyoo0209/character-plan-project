@@ -101,6 +101,11 @@ def pick_image(cid: str) -> Path | None:
     return _find_image(f"{cid}_pick") or _find_image(cid)
 
 
+def empty_image(cid: str) -> Path | None:
+    """달력에서 일정이 없는 날 보여줄 그림 (<id>_1.png). 없으면 None (리본으로 대신)."""
+    return _find_image(f"{cid}_1")
+
+
 def character_path(cid: str) -> Path:
     """고른 캐릭터 이미지. 파일이 없으면 이미지가 있는 첫 캐릭터로 대체."""
     for c in (cid, *(c for c, _ in CHARACTERS)):

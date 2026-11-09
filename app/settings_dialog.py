@@ -18,15 +18,13 @@ from PySide6.QtWidgets import (
 )
 
 from .config import CHARACTERS, Settings, character_image, pick_image
-from .themes import DEFAULT_THEME, Theme, theme_for
+from .themes import DEFAULT_THEME, Theme, common_style, theme_for
 
-FONT_FAMILY = "Jua"  # 주아 (assets/fonts/Jua-Regular.ttf, app._load_fonts 에서 등록)
 LEAD_CHOICES = (0, 5, 10, 30, 60)  # 미리 알림 선택지(분)
 
 
 def build_style(t: Theme) -> str:
-    return f"""
-* {{ font-family: "{FONT_FAMILY}"; }}
+    return common_style(t) + f"""
 QDialog {{ background: {t.bg}; }}
 QLabel {{ color: {t.text}; }}
 QLabel#title {{ font-size: 20px; font-weight: bold; color: {t.accent_deep}; }}
@@ -38,22 +36,7 @@ QLineEdit {{
     selection-background-color: {t.accent}; selection-color: {t.on_accent};
 }}
 QLineEdit:focus {{ border-color: {t.accent}; }}
-QPushButton#chip {{
-    background: {t.card}; color: {t.text}; font-size: 13px;
-    border: 2px solid {t.line}; border-radius: 15px; padding: 5px 14px; min-height: 18px;
-}}
-QPushButton#chip:hover {{ border-color: {t.accent}; }}
-QPushButton#chip:checked {{
-    background: {t.accent}; color: {t.on_accent}; font-weight: bold; border-color: {t.accent};
-}}
-QPushButton#primary, QPushButton#ghost {{
-    font-size: 14px; font-weight: bold; border-radius: 19px; padding: 8px 26px; min-height: 20px;
-}}
-QPushButton#primary {{ background: {t.accent}; color: {t.on_accent}; border: 2px solid {t.accent}; }}
-QPushButton#primary:hover {{ background: {t.accent_deep}; border-color: {t.accent_deep}; color: white; }}
-QPushButton#primary:disabled {{ background: {t.line}; border-color: {t.line}; color: {t.card}; }}
-QPushButton#ghost {{ background: transparent; color: {t.subtext}; border: 2px solid {t.line}; }}
-QPushButton#ghost:hover {{ color: {t.text}; border-color: {t.accent}; }}
+QPushButton#primary, QPushButton#ghost {{ padding: 8px 26px; }}
 """
 
 

@@ -15,18 +15,25 @@
 - **우클릭 메뉴 · 트레이 아이콘**: 일정 보기, 설정, 캐릭터 숨기기, 종료.
 - **캐릭터 고르기**: 설정에서 치이카와 · 우사기 · 쿠리만쥬 중에 고릅니다. 높이 160px 고정. GIF는 애니메이션이 그대로 재생되고, 그 위에 둥실거림·알림 점프 모션이 더해집니다.
 
+### 일정 카테고리
+
+일정마다 카테고리를 하나 고를 수 있습니다 (안 골라도 됨): 💼 일 · 📚 공부 · 🎮 게임 · ☕ 약속 · 💪 운동 · 💊 병원 · ✈️ 여행 · 📌 기타.
+목록은 `app/categories.py`, 아이콘은 `assets/icons/categories/` 에 있습니다.
+일정 추가·수정 창에서 날짜는 달력에서 고른 날로 고정되고, 시간은 시간 칸을 눌러 입력합니다.
+
 ### 캐릭터 이미지 넣기
 
 캐릭터 목록은 `app/config.py` 의 `CHARACTERS` 에 있고, 이미지는 `assets/characters/` 에 넣습니다 (`.gif` 권장, `.webp`, `.png` 도 됨).
 
-| id | 이름 | 바탕화면 캐릭터 | 설정 창 고르기 카드 |
-| --- | --- | --- | --- |
-| `chiikawa` | 치이카와 | `chiikawa.gif` | `chiikawa_pick.gif` |
-| `usagi` | 우사기 | `usagi.gif` | `usagi_pick.gif` |
-| `kurimanju` | 쿠리만쥬 | `kurimanju.gif` | `kurimanju_pick.gif` |
+| id | 이름 | 바탕화면 캐릭터 | 설정 창 고르기 카드 | 달력 '일정 없는 날' |
+| --- | --- | --- | --- | --- |
+| `chiikawa` | 치이카와 | `chiikawa.gif` | `chiikawa_pick.gif` | `chiikawa_1.png` |
+| `usagi` | 우사기 | `usagi.gif` | `usagi_pick.gif` | `usagi_1.png` |
+| `kurimanju` | 쿠리만쥬 | `kurimanju.gif` | `kurimanju_pick.gif` | `kurimanju_1.png` |
 
 - 고르기 카드는 평소엔 첫 장면으로 멈춰 있다가, 고르면 뽀잉 튀어 오르면서 GIF 를 한 바퀴 재생하고 다시 멈춥니다.
 - 둘 중 하나만 있으면 있는 그림을 양쪽에 같이 씁니다 (예: `usagi_pick.gif` 만 있으면 바탕화면에도 그 그림).
+- `_1.png` 가 없으면 달력의 일정 없는 날에는 테마 색 리본이 나옵니다.
 
 캐릭터마다 설정 창 색 테마가 있습니다 (`app/themes.py`: 치이카와 핑크 · 우사기 크림 노랑 · 쿠리만쥬 밤색).
 캐릭터 높이는 `CHARACTER_SIZE`, 평소 말풍선 표시 시간은 `BUBBLE_SECONDS` 에서 바꿉니다.
@@ -91,6 +98,7 @@ app/character.py         캐릭터 창(애니메이션·드래그) + 말풍선
 app/calendar_window.py   달력 / 일정 편집
 app/settings_dialog.py   설정 창 (캐릭터 고르기, 이름, 미리 알림)
 app/themes.py            캐릭터별 색 테마
+app/categories.py        일정 카테고리 목록 (이름 + 이모지 아이콘)
 app/notifier.py          15초마다 일정 확인 → 알림
 app/messages.py          대사 (이름 뒤 아/야, 오전/오후 표현)
 app/storage.py           schedules.json 읽기/쓰기
@@ -100,7 +108,7 @@ app/autostart.py         시작 프로그램 등록 (HKCU Run)
 assets/characters/       캐릭터 이미지 (<id>.gif)
 assets/icon.ico          아이콘
 assets/fonts/            폰트 (주아, SIL OFL)
-assets/icons/            작은 아이콘 (테마 색 리본: Noto Emoji, Apache 2.0)
+assets/icons/            작은 아이콘 (테마 색 리본, 카테고리 이모지: Noto Emoji, Apache 2.0)
 tools/make_character.py  기본 캐릭터 이미지 생성 스크립트
 ```
 

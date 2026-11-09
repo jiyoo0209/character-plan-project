@@ -21,6 +21,7 @@ class Schedule:
     date: str  # YYYY-MM-DD
     time: str  # HH:MM
     memo: str = ""
+    category: str = ""  # app/categories.py 의 이름 (없으면 빈 칸)
     id: str = field(default_factory=lambda: uuid.uuid4().hex[:12])
     notified_before: bool = False  # 미리 알림 완료 여부
     notified_on_time: bool = False  # 정각 알림 완료 여부
@@ -84,13 +85,13 @@ class ScheduleStore(QObject):
         return {s.date for s in self._items}
 
     # ---- 편집 ----
-    def add(self, title: str, d: date, time_hhmm: str, memo: str = "") -> Schedule:
-        s = Schedule(title=title.strip(), date=d.isoformat(), time=time_hhmm, memo=memo.strip())
+    def add(self, title: str, d: date, time_hhmm: str, memo: str = "", category: str = "") -> Schedule:
+        s = Schedule(title=title.strip(), date=d.isoformat(), time=time_hhmm, memo=memo.strip(), category=category)
         self._items.append(s)
         self.save()
         return s
 
-    def update(self, sid: str, title: str, d: date, time_hhmm: str, memo: str = "") -> None:
+    def update(self, sid: str, title: str, d: date, time_hhmm: str, memo: str = "", category: str = "") -> None:
         s = self.get(sid)
         if s is None:
             return
@@ -98,6 +99,7 @@ class ScheduleStore(QObject):
             # 시간이 바뀌면 알림을 다시 받을 수 있게 초기화
             s.notified_before = s.notified_on_time = False
         s.title, s.date, s.time, s.memo = title.strip(), d.isoformat(), time_hhmm, memo.strip()
+        s.category = category
         self.save()
 
     def delete(self, sid: str) -> None:

@@ -26,6 +26,7 @@ from .config import (
 from .messages import call_name
 from .notifier import Notifier
 from .settings_dialog import SettingsDialog
+from .themes import theme_for
 from .storage import ScheduleStore
 
 WATCHDOG_MS = 1500
@@ -62,7 +63,7 @@ class CharacterPlanApp:
 
         self.character = CharacterWidget(character_path(self.settings.character), CHARACTER_SIZE)
         self.bubble = SpeechBubble()
-        self.calendar = CalendarWindow(self.store)
+        self.calendar = CalendarWindow(self.store, theme_for(self.settings.character))
         icon = QIcon(str(ICON_PATH))
         self.qapp.setWindowIcon(icon)
         self.calendar.setWindowIcon(icon)
@@ -190,6 +191,7 @@ class CharacterPlanApp:
             else:
                 self.settings.save()  # 첫 실행에서 취소해도 다음엔 묻지 않도록
             self.character.set_image(character_path(self.settings.character), CHARACTER_SIZE)
+            self.calendar.set_theme(theme_for(self.settings.character))
 
 
 def run() -> int:

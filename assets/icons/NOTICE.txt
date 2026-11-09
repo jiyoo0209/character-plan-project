@@ -1,3 +1,6 @@
 ribbon_*.png — Noto Emoji "ribbon" (U+1F380), 캐릭터 테마 색으로 다시 칠함
 Copyright Google LLC. Licensed under the Apache License, Version 2.0.
 https://github.com/googlefonts/noto-emoji
+
+categories/*.png — Noto Emoji (briefcase, books, video game, hot beverage, flexed biceps, pill, airplane, pushpin), 여백을 잘라 가운데 정렬
+Copyright Google LLC. Licensed under the Apache License, Version 2.0.

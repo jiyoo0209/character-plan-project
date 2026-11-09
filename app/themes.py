@@ -5,6 +5,10 @@ from dataclasses import dataclass
 
 from .config import ASSETS_DIR
 
+FONT_FAMILY = "Jua"  # 주아 (assets/fonts/Jua-Regular.ttf, app._load_fonts 에서 등록)
+SUNDAY = "#E57B83"  # 달력 일요일 글자
+SATURDAY = "#6E97CF"  # 달력 토요일 글자
+
 
 @dataclass(frozen=True)
 class Theme:
@@ -47,3 +51,27 @@ DEFAULT_THEME = THEMES["chiikawa"]
 
 def theme_for(cid: str) -> Theme:
     return THEMES.get(cid, DEFAULT_THEME)
+
+
+def common_style(t: Theme) -> str:
+    """여러 창이 같이 쓰는 스타일: 폰트, 알약 버튼(primary/ghost/chip)."""
+    return f"""
+* {{ font-family: "{FONT_FAMILY}"; }}
+QPushButton#chip {{
+    background: {t.card}; color: {t.text}; font-size: 13px;
+    border: 2px solid {t.line}; border-radius: 15px; padding: 5px 14px; min-height: 18px;
+}}
+QPushButton#chip:hover {{ border-color: {t.accent}; }}
+QPushButton#chip:checked {{
+    background: {t.accent}; color: {t.on_accent}; font-weight: bold; border-color: {t.accent};
+}}
+QPushButton#primary, QPushButton#ghost {{
+    font-size: 14px; font-weight: bold; border-radius: 19px; padding: 8px 22px; min-height: 20px;
+}}
+QPushButton#primary {{ background: {t.accent}; color: {t.on_accent}; border: 2px solid {t.accent}; }}
+QPushButton#primary:hover {{ background: {t.accent_deep}; border-color: {t.accent_deep}; color: white; }}
+QPushButton#primary:disabled {{ background: {t.line}; border-color: {t.line}; color: {t.card}; }}
+QPushButton#ghost {{ background: transparent; color: {t.subtext}; border: 2px solid {t.line}; }}
+QPushButton#ghost:hover {{ color: {t.text}; border-color: {t.accent}; }}
+QPushButton#ghost:disabled {{ color: {t.line}; border-color: {t.line}; }}
+"""
