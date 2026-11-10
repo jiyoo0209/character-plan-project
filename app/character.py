@@ -167,7 +167,7 @@ class CharacterWidget(QWidget):
         p.drawPixmap(QPointF(-pix.width() / 2, -pix.height()), pix)
         p.end()
 
-    # ---- 마우스: 클릭하면 달력, 끌면 이동, 우클릭 메뉴 ----
+    # ---- 마우스: 클릭하면 오늘 할 일, 끌면 이동, 우클릭 메뉴 ----
     def mousePressEvent(self, e) -> None:
         if e.button() == Qt.MouseButton.LeftButton:
             self._press = e.globalPosition().toPoint()

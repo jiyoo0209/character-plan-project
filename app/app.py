@@ -1,4 +1,4 @@
-"""앱 조립: 캐릭터, 말풍선, 달력, 알림, 트레이."""
+"""앱 조립: 캐릭터, 말풍선, 오늘 할 일, 달력, 알림, 트레이."""
 from __future__ import annotations
 
 import sys
@@ -29,6 +29,7 @@ from .messages import hello_message, update_check_message
 from .notifier import Notifier
 from .settings_dialog import SettingsDialog
 from .themes import menu_style, theme_for
+from .today_popup import TodayPopup
 from .update_dialog import UpdateDialog
 from .updater import Downloader, Release, UpdateChecker, launch_installer
 from .version import __version__
@@ -73,6 +74,8 @@ class CharacterPlanApp:
         self.character = CharacterWidget(character_path(self.settings.character), CHARACTER_SIZE)
         self.bubble = SpeechBubble(theme_for(self.settings.character))
         self.calendar = CalendarWindow(self.store, theme_for(self.settings.character))
+        self.today = TodayPopup(self.store, theme_for(self.settings.character))
+        self.today.manage_requested.connect(self.calendar.open)
         icon = QIcon(str(ICON_PATH))
         self.qapp.setWindowIcon(icon)
         self.calendar.setWindowIcon(icon)
@@ -159,6 +162,7 @@ class CharacterPlanApp:
         t = theme_for(self.settings.character)
         self.calendar.set_theme(t)
         self.bubble.set_theme(t)
+        self.today.set_theme(t)
         self.menu.setStyleSheet(menu_style(t))
 
     def _on_tray(self, reason) -> None:
@@ -170,6 +174,7 @@ class CharacterPlanApp:
         self.character.setVisible(not hidden)
         if hidden:
             self.bubble.dismiss()
+            self.today.close()
         else:
             desktop.pin_to_desktop(self._hwnd)
 
@@ -187,6 +192,7 @@ class CharacterPlanApp:
 
     def _on_moved(self, pos: QPoint) -> None:
         self.bubble.dismiss()
+        self.today.close()
         self.settings.pos_x, self.settings.pos_y = pos.x(), pos.y()
         self.settings.save()
         desktop.send_to_bottom(self._hwnd)  # 끌면서 앞으로 나온 창을 다시 아래로
@@ -207,6 +213,7 @@ class CharacterPlanApp:
     def alert(self, text: str) -> None:
         if self.hidden_by_user:
             self.act_hide.setChecked(False)  # 숨겨 둔 상태여도 일정 알림은 보여 준다
+        self.today.close()  # 알림 말풍선이 체크리스트에 가리지 않게
         self.character.start_alert()
         desktop.set_topmost(self._hwnd, True)
         desktop.beep()
@@ -252,9 +259,13 @@ class CharacterPlanApp:
             self.brief()
 
     def _on_character_clicked(self) -> None:
+        """캐릭터 클릭: 오늘 할 일 체크리스트. 열려 있을 때 다시 누르면 닫힌다."""
         self._queue.clear()
         self.bubble.dismiss()  # 알림 중이면 알림도 같이 끝남
-        self.calendar.open()
+        if self.today.isVisible():
+            self.today.close()
+        elif not self.today.just_closed():  # 이 클릭으로 방금 닫힌 거면 다시 열지 않는다
+            self.today.open_at(self.character.art_rect())
 
     def _first_run(self) -> None:
         self.open_settings(first_run=True)

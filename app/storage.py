@@ -34,6 +34,7 @@ class Schedule:
     skip: list[str] = field(default_factory=list)  # 빠진 날 (이 날만 지우기/바꾸기)
     dday: bool = False  # D-day 로 세기 (단일 일정 / 매년 반복)
     notified: list[str] = field(default_factory=list)  # 반복 일정 알림 기록: 'YYYY-MM-DD|b' (미리), '|a' (정각)
+    done: list[str] = field(default_factory=list)  # 체크리스트에서 끝냈다고 체크한 날 'YYYY-MM-DD'
 
     @property
     def dt(self) -> datetime:
@@ -88,6 +89,11 @@ class Occurrence:
 
     def __getattr__(self, name):  # title, time, memo, category, id, is_repeat …
         return getattr(self.s, name)
+
+    @property
+    def done(self) -> bool:
+        """오늘 할 일 체크리스트에서 체크했는지 (반복 일정은 그날만)."""
+        return self.day.isoformat() in self.s.done
 
     # 알림 기록: 단일 일정은 원래 플래그, 반복 일정은 날짜별 기록
     def notified_flag(self, kind: str) -> bool:
@@ -214,10 +220,27 @@ class ScheduleStore(QObject):
             # 시간이 바뀌면 알림을 다시 받을 수 있게 초기화
             s.notified_before = s.notified_on_time = False
             s.notified = []
+        if s.date != d.isoformat() and not s.is_repeat and repeat is None:
+            s.done = []  # 다른 날로 옮긴 단일 일정은 체크도 풀린다
         s.title, s.date, s.time, s.memo = title.strip(), d.isoformat(), time_hhmm, memo.strip()
         s.category = category
         s.dday = dday
         s.set_rule(repeat)
+        self.save()
+
+    def set_done(self, sid: str, d: date, on: bool) -> None:
+        """체크리스트 체크 / 해제. 반복 일정은 날짜별로 따로 기록한다."""
+        s = self.get(sid)
+        if s is None:
+            return
+        key = d.isoformat()
+        if on and key not in s.done:
+            s.done.append(key)
+        elif not on and key in s.done:
+            s.done.remove(key)
+        if s.is_repeat:  # 오래된 기록은 정리 (두 달 전까지만)
+            cutoff = (d - timedelta(days=60)).isoformat()
+            s.done = [k for k in s.done if k >= cutoff]
         self.save()
 
     def delete(self, sid: str) -> None:
