@@ -46,6 +46,7 @@ from .messages import dday_text
 from .messages import time_text
 from .recurrence import DAY_NAMES, KINDS, KIND_LABEL, RepeatRule, occurrences, count as repeat_count, monthly_day_text, monthly_nth_text, rule_text
 from .storage import ScheduleStore
+from .frame import SHADOW, RoundFrame
 from .themes import DEFAULT_THEME, FONT_FAMILY, SATURDAY, SUNDAY, Theme, common_style
 
 WEEKDAYS = "월화수목금토일"  # date.weekday() 순서
@@ -90,7 +91,7 @@ def scaled_icon(widget: QWidget, path: Path | None, size: int) -> QPixmap:
 def dialog_style(t: Theme) -> str:
     """일정 추가/수정, 삭제 확인 팝업."""
     return common_style(t) + f"""
-QDialog {{ background: {t.bg}; }}
+QDialog {{ background: transparent; }}  /* 둥근 판은 RoundFrame 이 그린다 */
 QLabel {{ color: {t.text}; }}
 QLabel#title {{ font-size: 20px; color: {t.accent_deep}; }}
 QLabel#section {{ font-size: 13px; color: {t.text}; }}
@@ -647,7 +648,7 @@ class ScheduleDialog(QDialog):
         self.start = day
         editing = item is not None
         self.setWindowTitle("일정 수정" if editing else "일정 추가")
-        self.setFixedWidth(420)
+        self.setFixedWidth(400)
         self.setStyleSheet(dialog_style(self.theme))
         rule = item.rule if (editing and item.is_repeat) else None
         repeat_on = mode == "repeat" or (mode == "free" and rule is not None)
@@ -812,7 +813,7 @@ class ScheduleDialog(QDialog):
         buttons.addWidget(ok)
 
         lay = QVBoxLayout(self)
-        lay.setContentsMargins(24, 20, 24, 20)
+        lay.setContentsMargins(16, 12, 16, 14)
         lay.setSpacing(6)
         lay.addLayout(head)
         lay.addSpacing(8)
@@ -840,6 +841,7 @@ class ScheduleDialog(QDialog):
         lay.addWidget(self.dday_gap)
         lay.addLayout(buttons)
 
+        self.frame = RoundFrame(self, self.theme, title_row=head)
         self._update_mode()
 
     # ---- 부품 ----
@@ -1001,7 +1003,7 @@ class ScopeDialog(QDialog):
         self.setStyleSheet(dialog_style(theme))
         self.setFixedWidth(360)
         lay = QVBoxLayout(self)
-        lay.setContentsMargins(24, 22, 24, 20)
+        lay.setContentsMargins(16, 16, 16, 14)
         lay.setSpacing(8)
         pic = QLabel()
         pic.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -1027,6 +1029,7 @@ class ScopeDialog(QDialog):
         cancel.clicked.connect(self.reject)
         lay.addSpacing(6)
         lay.addWidget(cancel, 0, Qt.AlignmentFlag.AlignHCenter)
+        self.frame = RoundFrame(self, theme)
 
     def _pick(self, key: str) -> None:
         self.choice = key
@@ -1069,7 +1072,7 @@ class ConfirmDialog(QDialog):
         buttons.addStretch(1)
 
         lay = QVBoxLayout(self)
-        lay.setContentsMargins(24, 22, 24, 20)
+        lay.setContentsMargins(16, 16, 16, 14)
         lay.setSpacing(6)
         lay.addWidget(pic)
         lay.addSpacing(8)
@@ -1081,6 +1084,7 @@ class ConfirmDialog(QDialog):
             lay.addWidget(s)
         lay.addSpacing(14)
         lay.addLayout(buttons)
+        self.frame = RoundFrame(self, theme)
 
 
 class MonthCalendar(QWidget):
@@ -1431,8 +1435,9 @@ class ScheduleDelegate(QStyledItemDelegate):
 
 def window_style(t: Theme) -> str:
     return common_style(t) + f"""
-QWidget#calwin {{ background: {t.bg}; }}
+QWidget#calwin {{ background: transparent; }}
 QLabel {{ color: {t.text}; }}
+QLabel#winTitle {{ font-size: 20px; color: {t.accent_deep}; }}
 QLabel#dayTitle {{ font-size: 21px; color: {t.accent_deep}; }}
 QLabel#dayCount {{ font-size: 13px; color: {t.subtext}; }}
 QLabel#emptyTitle {{ font-size: 15px; color: {t.text}; }}
@@ -1565,12 +1570,29 @@ class CalendarWindow(QWidget):
         right.addWidget(self.stack, 1)
         right.addLayout(buttons)
 
-        lay = QHBoxLayout(self)
-        lay.setContentsMargins(18, 18, 18, 18)
-        lay.setSpacing(18)
-        lay.addWidget(self.calendar, 11)
-        lay.addLayout(right, 9)
+        # 맨 위: 창 제목 '일정표' + 리본 (─ × 버튼도 이 줄 끝에 붙는다)
+        win_title = QLabel("일정표")
+        win_title.setObjectName("winTitle")
+        self.title_ribbon = QLabel()
+        title_row = QHBoxLayout()
+        title_row.setSpacing(6)
+        title_row.addWidget(win_title)
+        title_row.addWidget(self.title_ribbon, 0, Qt.AlignmentFlag.AlignVCenter)
+        title_row.addStretch(1)
 
+        body = QHBoxLayout()
+        body.setSpacing(18)
+        body.addWidget(self.calendar, 11)
+        body.addLayout(right, 9)
+
+        lay = QVBoxLayout(self)
+        lay.setContentsMargins(16, 12, 16, 16)
+        lay.setSpacing(10)
+        lay.addLayout(title_row)
+        lay.addLayout(body, 1)
+
+        self.frame = RoundFrame(self, theme, minimize=True, resizable=True, title_row=title_row)
+        self.resize(720 + 2 * SHADOW, 470 + 2 * SHADOW)
         self.set_theme(theme)
         store.changed.connect(self.refresh)
         self.refresh()
@@ -1579,10 +1601,12 @@ class CalendarWindow(QWidget):
     def set_theme(self, t: Theme) -> None:
         self.theme = t
         self.setStyleSheet(window_style(t))
+        self.frame.set_theme(t)
         self.calendar.set_theme(t)
         self.delegate.theme = t
         self.list.viewport().update()
         self.ribbon.setPixmap(scaled_icon(self, t.ribbon, 24))
+        self.title_ribbon.setPixmap(scaled_icon(self, t.ribbon, 26))
         # 일정 없는 날 그림: 캐릭터 그림(<id>_1.png), 없으면 큰 리본
         pic = empty_image(t.key)
         self.empty_icon.setPixmap(scaled_icon(self, pic, 96) if pic else scaled_icon(self, t.ribbon, 44))

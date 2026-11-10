@@ -17,6 +17,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from .frame import RoundFrame
 from .config import CHARACTERS, Settings, character_image, pick_image
 from .themes import DEFAULT_THEME, Theme, theme_for
 
@@ -27,7 +28,7 @@ def build_style(t: Theme) -> str:
     from .calendar_window import dialog_style  # 시간 칸(TimeField) 스타일 포함
 
     return dialog_style(t) + f"""
-QDialog {{ background: {t.bg}; }}
+QDialog {{ background: transparent; }}
 QLabel {{ color: {t.text}; }}
 QLabel#title {{ font-size: 20px; font-weight: bold; color: {t.accent_deep}; }}
 QLabel#subtitle {{ font-size: 13px; color: {t.subtext}; }}
@@ -331,7 +332,7 @@ class SettingsDialog(QDialog):
         btn_row.addWidget(self.ok)
 
         lay = QVBoxLayout(self)
-        lay.setContentsMargins(26, 22, 26, 22)
+        lay.setContentsMargins(18, 12, 18, 16)
         lay.setSpacing(6)
         title_row = QHBoxLayout()
         title_row.setSpacing(6)
@@ -340,23 +341,24 @@ class SettingsDialog(QDialog):
         title_row.addStretch(1)
         lay.addLayout(title_row)
         lay.addWidget(subtitle)
-        lay.addSpacing(14)
+        lay.addSpacing(10)
         lay.addWidget(self._section("같이 지낼 친구"))
         lay.addLayout(card_row)
-        lay.addSpacing(14)
+        lay.addSpacing(10)
         lay.addWidget(self._section("뭐라고 불러줄까?"))
         lay.addWidget(self.name)
-        lay.addSpacing(14)
+        lay.addSpacing(10)
         lay.addWidget(self._section("일정은 언제 미리 알려줄까?"))
         lay.addLayout(lead_row)
-        lay.addSpacing(14)
+        lay.addSpacing(10)
         lay.addWidget(self._section("하루 브리핑은 언제 해 줄까?"))
         brief_hint = QLabel("오늘 일정을 먼저 말하고, 등록된 D-day도 알려 줘")
         brief_hint.setObjectName("subtitle")
         lay.addWidget(brief_hint)
         lay.addLayout(brief_row)
-        lay.addSpacing(20)
+        lay.addSpacing(14)
         lay.addLayout(btn_row)
+        self.frame = RoundFrame(self, theme_for(settings.character), title_row=title_row)
 
         # 처음 선택: 저장된 캐릭터 → 그림이 있는 첫 캐릭터 → 첫 캐릭터
         buttons = self.cards.buttons()
@@ -379,6 +381,8 @@ class SettingsDialog(QDialog):
 
     def apply_theme(self, t: Theme) -> None:
         self.setStyleSheet(build_style(t))
+        if hasattr(self, "frame"):
+            self.frame.set_theme(t)
         for card in self.cards.buttons():
             card.theme = t
             card.update()
