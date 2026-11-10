@@ -6,19 +6,11 @@ from pathlib import Path
 from PySide6.QtCore import QEasingCurve, QPointF, QRectF, QSize, Qt, QTime, QVariantAnimation
 from PySide6.QtGui import QColor, QFont, QImageReader, QMovie, QPainter, QPainterPath, QPen, QPixmap
 from PySide6.QtWidgets import (
-    QAbstractButton,
-    QButtonGroup,
-    QDialog,
-    QHBoxLayout,
-    QLabel,
-    QLineEdit,
-    QPushButton,
-    QVBoxLayout,
-    QWidget,
+    QAbstractButton, QButtonGroup, QDialog, QHBoxLayout, QLabel, QLineEdit, QPushButton, QSlider, QVBoxLayout, QWidget,
 )
 
 from .frame import RoundFrame
-from .config import CHARACTERS, Settings, character_image, pick_image
+from .config import CHARACTERS, SIZE_MAX, SIZE_MIN, SIZE_STEP, Settings, character_image, pick_image
 from .themes import DEFAULT_THEME, Theme, theme_for
 
 LEAD_CHOICES = (0, 5, 10, 30, 60)  # 미리 알림 선택지(분)
@@ -33,6 +25,12 @@ QLabel {{ color: {t.text}; }}
 QLabel#title {{ font-size: 20px; font-weight: bold; color: {t.accent_deep}; }}
 QLabel#subtitle {{ font-size: 13px; color: {t.subtext}; }}
 QLabel#section {{ font-size: 13px; font-weight: bold; color: {t.text}; }}
+QLabel#sizeEnd {{ font-size: 12px; color: {t.subtext}; }}
+QSlider {{ min-height: 22px; }}
+QSlider::groove:horizontal {{ height: 8px; background: {t.card}; border: 1px solid {t.line}; border-radius: 4px; }}
+QSlider::sub-page:horizontal {{ background: {t.accent}; border-radius: 4px; }}
+QSlider::handle:horizontal {{ width: 12px; height: 12px; margin: -5px 0; border-radius: 9px;
+    background: white; border: 3px solid {t.accent}; }}
 QLineEdit {{
     background: {t.card}; color: {t.text}; font-size: 14px;
     border: 2px solid {t.line}; border-radius: 16px; padding: 7px 14px;
@@ -274,6 +272,28 @@ class SettingsDialog(QDialog):
             self.cards.addButton(card)
             card_row.addWidget(card)
 
+        # 캐릭터 크기: 슬라이더 (10px 단위) + 지금 값
+        from .calendar_window import Pill
+
+        self.size = QSlider(Qt.Orientation.Horizontal)
+        self.size.setRange(SIZE_MIN // SIZE_STEP, SIZE_MAX // SIZE_STEP)
+        self.size.setPageStep(2)
+        self.size.setValue(round(settings.character_size / SIZE_STEP))
+        self.size.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.size_pill = Pill(theme_for(settings.character))
+        self.size.valueChanged.connect(lambda v: self.size_pill.setText(f"{v * SIZE_STEP}px"))
+        self.size_pill.setText(f"{self.size.value() * SIZE_STEP}px")
+        size_row = QHBoxLayout()
+        size_row.setSpacing(10)
+        small, big = QLabel("작게"), QLabel("크게")
+        for lb in (small, big):
+            lb.setObjectName("sizeEnd")
+        size_row.addWidget(small)
+        size_row.addWidget(self.size, 1)
+        size_row.addWidget(big)
+        size_row.addSpacing(4)
+        size_row.addWidget(self.size_pill)
+
         # 이름
         self.name = QLineEdit(settings.user_name)
         self.name.setPlaceholderText("캐릭터가 불러줄 이름")
@@ -345,6 +365,9 @@ class SettingsDialog(QDialog):
         lay.addWidget(self._section("같이 지낼 친구"))
         lay.addLayout(card_row)
         lay.addSpacing(10)
+        lay.addWidget(self._section("크기는 얼마나 할까?"))
+        lay.addLayout(size_row)
+        lay.addSpacing(10)
         lay.addWidget(self._section("뭐라고 불러줄까?"))
         lay.addWidget(self.name)
         lay.addSpacing(10)
@@ -386,6 +409,8 @@ class SettingsDialog(QDialog):
         for card in self.cards.buttons():
             card.theme = t
             card.update()
+        self.size_pill.theme = t
+        self.size_pill.update()
         self.ribbon.setPixmap(self._icon(t.ribbon, 28))
 
     def _icon(self, path: Path, size: int) -> QPixmap:
@@ -408,6 +433,7 @@ class SettingsDialog(QDialog):
         s = self.settings
         s.user_name = self.name.text().strip()
         s.lead_minutes = max(0, self.leads.checkedId())
+        s.character_size = self.size.value() * SIZE_STEP
         s.briefing = "time" if self.brief_mode.checkedId() == 1 else "startup"
         s.briefing_time = self.brief_time.time().toString("HH:mm")
         card = self.cards.checkedButton()

@@ -16,7 +16,6 @@ from .config import (
     APP_TITLE,
     ASSETS_DIR,
     BUBBLE_SECONDS,
-    CHARACTER_SIZE,
     DATA_DIR,
     FONTS_DIR,
     ICON_PATH,
@@ -71,7 +70,7 @@ class CharacterPlanApp:
         self.notifier = Notifier(self.store, lambda: self.settings)
         self.hidden_by_user = False
 
-        self.character = CharacterWidget(character_path(self.settings.character), CHARACTER_SIZE)
+        self.character = CharacterWidget(character_path(self.settings.character), self.settings.character_size)
         self.bubble = SpeechBubble(theme_for(self.settings.character))
         self.calendar = CalendarWindow(self.store, theme_for(self.settings.character))
         self.today = TodayPopup(self.store, theme_for(self.settings.character))
@@ -189,6 +188,18 @@ class CharacterPlanApp:
                 return
         area = QGuiApplication.primaryScreen().availableGeometry()
         c.move(area.right() - c.width() - 40, area.bottom() - c.height() - 20)
+
+    def _keep_on_screen(self) -> None:
+        """크기를 바꾼 뒤: 발 위치는 그대로 두되 화면 밖으로 나가면 안쪽으로 당기고, 위치를 저장."""
+        c = self.character
+        screen = QGuiApplication.screenAt(c.geometry().center()) or QGuiApplication.primaryScreen()
+        area = screen.availableGeometry()
+        x = min(max(c.x(), area.left()), area.right() - c.width() + 1)
+        y = min(max(c.y(), area.top()), area.bottom() - c.height() + 1)
+        c.move(x, y)
+        if self.settings.pos_x is not None:
+            self.settings.pos_x, self.settings.pos_y = x, y
+            self.settings.save()
 
     def _on_moved(self, pos: QPoint) -> None:
         self.bubble.dismiss()
@@ -337,7 +348,8 @@ class CharacterPlanApp:
                 dlg.apply()
             else:
                 self.settings.save()  # 첫 실행에서 취소해도 다음엔 묻지 않도록
-            self.character.set_image(character_path(self.settings.character), CHARACTER_SIZE)
+            self.character.set_image(character_path(self.settings.character), self.settings.character_size)
+            self._keep_on_screen()
             self.apply_theme()
 
 

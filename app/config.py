@@ -70,7 +70,8 @@ def atomic_write_json(path: Path, data) -> None:
     os.replace(tmp, path)
 
 
-CHARACTER_SIZE = 160  # 캐릭터 높이(px), 고정
+CHARACTER_SIZE = 160  # 캐릭터 높이(px) 기본값 (설정에서 바꿀 수 있음)
+SIZE_MIN, SIZE_MAX, SIZE_STEP = 90, 260, 10
 BUBBLE_SECONDS = 8  # 일반 말풍선(인사 등) 표시 시간, 고정
 
 # 고를 수 있는 캐릭터: (id, 이름). 이미지는 assets/characters/<id>.gif (또는 .png/.webp)
@@ -120,6 +121,7 @@ class Settings:
     user_name: str = ""  # 캐릭터가 불러줄 이름
     lead_minutes: int = 10  # 일정 몇 분 전에 미리 알려줄지 (0 이면 정각만)
     character: str = DEFAULT_CHARACTER  # CHARACTERS 의 id
+    character_size: int = CHARACTER_SIZE  # 캐릭터 높이(px), SIZE_MIN ~ SIZE_MAX
     briefing: str = "startup"  # 하루 브리핑: "startup" = 컴퓨터 켤 때(앱 시작), "time" = 정해진 시간
     briefing_time: str = "08:30"  # briefing == "time" 일 때 HH:MM
     last_briefing: str = ""  # 마지막으로 브리핑한 날 (YYYY-MM-DD), 정해진 시간 브리핑을 하루 한 번만
@@ -137,6 +139,10 @@ class Settings:
         s.lead_minutes = max(0, int(s.lead_minutes))
         if s.character not in {c for c, _ in CHARACTERS}:
             s.character = DEFAULT_CHARACTER
+        try:
+            s.character_size = min(SIZE_MAX, max(SIZE_MIN, int(s.character_size)))
+        except (TypeError, ValueError):
+            s.character_size = CHARACTER_SIZE
         if s.briefing not in ("startup", "time"):
             s.briefing = "startup"
         return s
