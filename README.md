@@ -12,7 +12,8 @@
 - **드래그 이동**: 캐릭터를 끌어서 원하는 위치에 두면 다음 실행 때도 그 자리에 나옵니다.
 - **알림**: 설정한 시간 전(기본 10분)과 정각에 캐릭터가 뛰면서 말풍선으로 알려 줍니다. 알림 중에는 다른 창 위로 올라오고, 말풍선이나 캐릭터를 누르면 끝납니다.
 - **실행 시 인사**: 켤 때 오늘 남은 일정을 요약해 줍니다.
-- **자동 실행**: Windows 로그인 시 항상 같이 켜집니다. 알림 효과음도 항상 켜져 있습니다.
+- **자동 실행**: Windows 로그인 시 항상 같이 켜집니다.
+- **알림 효과음**: 일정 알림 때 캐릭터마다 다른 효과음이 납니다 (`assets/sounds/<캐릭터 id>.mp3`). 파일이 없으면 Windows 기본 알림음이 나고, 설정의 '알림 소리'에서 끌 수 있습니다.
 - **우클릭 메뉴 · 트레이 아이콘**: 일정 보기, 설정, 캐릭터 숨기기, 종료.
 - **캐릭터 고르기**: 설정에서 치이카와 · 우사기 · 쿠리만쥬 중에 고릅니다. 크기는 설정에서 90~260px(10px 단위, 기본 160px)로 바꿀 수 있습니다. GIF는 애니메이션이 그대로 재생되고, 그 위에 둥실거림·알림 점프 모션이 더해집니다.
 
@@ -69,7 +70,7 @@
 | 파일 | 내용 |
 | --- | --- |
 | `data/schedules.json` | 일정 |
-| `data/settings.json` | 이름, 미리 알림 시간, 고른 캐릭터, 하루 브리핑, 캐릭터 위치 |
+| `data/settings.json` | 이름, 미리 알림 시간, 고른 캐릭터, 하루 브리핑, 알림 소리, 캐릭터 위치 |
 | `data/error.log` | 오류 기록 (문제가 있을 때만 생김) |
 
 설치 폴더에 쓰기 권한이 없으면(예: `Program Files`) 자동으로 `%LOCALAPPDATA%\CharacterPlan\data` 를 씁니다.
@@ -141,12 +142,14 @@ app/themes.py            캐릭터별 색 테마
 app/categories.py        일정 카테고리 목록 (이름 + 이모지 아이콘)
 app/recurrence.py        반복 일정 규칙 (매일/매주/매월/매년, 종료일)
 app/notifier.py          15초마다 일정 확인 → 알림
+app/sound.py             캐릭터 효과음 재생
 app/messages.py          대사 (이름 뒤 아/야, 오전/오후 표현)
 app/storage.py           schedules.json 읽기/쓰기
 app/config.py            경로, settings.json
 app/desktop.py           Windows 바탕화면 레이어 고정 (Win32 API)
 app/autostart.py         시작 프로그램 등록 (HKCU Run)
 assets/characters/       캐릭터 이미지 (<id>.gif)
+assets/sounds/           캐릭터 효과음 (<id>.mp3, .wav .ogg .m4a 도 됨)
 assets/icon.ico          아이콘
 assets/fonts/            폰트 (주아, SIL OFL)
 assets/icons/            작은 아이콘 (테마 색 리본, 카테고리 이모지: Noto Emoji, Apache 2.0)

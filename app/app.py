@@ -27,6 +27,7 @@ from .config import (
 from .messages import hello_message, update_check_message
 from .notifier import Notifier
 from .settings_dialog import SettingsDialog
+from .sound import player as sound_player
 from .themes import menu_style, theme_for
 from .today_popup import TodayPopup
 from .update_dialog import UpdateDialog
@@ -227,7 +228,8 @@ class CharacterPlanApp:
         self.today.close()  # 알림 말풍선이 체크리스트에 가리지 않게
         self.character.start_alert()
         desktop.set_topmost(self._hwnd, True)
-        desktop.beep()
+        if self.settings.sound_on:  # 캐릭터 효과음 (파일이 없으면 기본 알림음)
+            sound_player().play(self.settings.character)
         self.say(text, ALERT_SECONDS)
 
     def _end_alert(self) -> None:

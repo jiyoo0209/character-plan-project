@@ -124,6 +124,7 @@ class Settings:
     character_size: int = CHARACTER_SIZE  # 캐릭터 높이(px), SIZE_MIN ~ SIZE_MAX
     briefing: str = "startup"  # 하루 브리핑: "startup" = 컴퓨터 켤 때(앱 시작), "time" = 정해진 시간
     briefing_time: str = "08:30"  # briefing == "time" 일 때 HH:MM
+    sound_on: bool = True  # 일정 알림 때 캐릭터 효과음 (assets/sounds/<캐릭터>.mp3)
     last_briefing: str = ""  # 마지막으로 브리핑한 날 (YYYY-MM-DD), 정해진 시간 브리핑을 하루 한 번만
     pos_x: int | None = None  # 캐릭터 위치 (None 이면 화면 오른쪽 아래)
     pos_y: int | None = None

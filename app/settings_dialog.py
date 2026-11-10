@@ -11,6 +11,7 @@ from PySide6.QtWidgets import (
 
 from .frame import RoundFrame
 from .config import CHARACTERS, SIZE_MAX, SIZE_MIN, SIZE_STEP, Settings, character_image, pick_image
+from .sound import player as sound_player, sound_file
 from .themes import DEFAULT_THEME, Theme, theme_for
 
 LEAD_CHOICES = (0, 5, 10, 30, 60)  # 미리 알림 선택지(분)
@@ -336,6 +337,26 @@ class SettingsDialog(QDialog):
         self.brief_mode.idToggled.connect(lambda *_: self.brief_time.setEnabled(self.brief_mode.checkedId() == 1))
         self.brief_time.setEnabled(settings.briefing == "time")
 
+        # 알림 소리: 켜기 / 끄기 + 들어 보기
+        self.sound_mode = QButtonGroup(self)
+        self.sound_mode.setExclusive(True)
+        sound_row = QHBoxLayout()
+        sound_row.setSpacing(6)
+        for i, text in enumerate(("효과음 켜기", "조용히")):
+            chip = QPushButton(text)
+            chip.setObjectName("chip")
+            chip.setCheckable(True)
+            chip.setCursor(Qt.CursorShape.PointingHandCursor)
+            chip.setChecked((i == 0) == bool(settings.sound_on))
+            self.sound_mode.addButton(chip, i)
+            sound_row.addWidget(chip)
+        self.preview = QPushButton("▶ 들어 보기")
+        self.preview.setObjectName("chip")  # 알약 모양 (체크는 안 됨)
+        self.preview.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.preview.clicked.connect(self._preview_sound)
+        sound_row.addWidget(self.preview)
+        sound_row.addStretch(1)
+
         # 버튼
         cancel = QPushButton("취소")
         cancel.setObjectName("ghost")
@@ -379,6 +400,9 @@ class SettingsDialog(QDialog):
         brief_hint.setObjectName("subtitle")
         lay.addWidget(brief_hint)
         lay.addLayout(brief_row)
+        lay.addSpacing(10)
+        lay.addWidget(self._section("알림 소리"))
+        lay.addLayout(sound_row)
         lay.addSpacing(14)
         lay.addLayout(btn_row)
         self.frame = RoundFrame(self, theme_for(settings.character), title_row=title_row)
@@ -401,6 +425,14 @@ class SettingsDialog(QDialog):
         if not on:
             return
         self.apply_theme(theme_for(card.cid))
+        has = sound_file(card.cid) is not None
+        self.preview.setEnabled(has)
+        self.preview.setToolTip("" if has else f"효과음 파일이 아직 없어 (assets/sounds/{card.cid}.mp3)")
+
+    def _preview_sound(self) -> None:
+        card = self.cards.checkedButton()
+        if card is not None:
+            sound_player().play(card.cid, fallback=False)
 
     def apply_theme(self, t: Theme) -> None:
         self.setStyleSheet(build_style(t))
@@ -436,6 +468,7 @@ class SettingsDialog(QDialog):
         s.character_size = self.size.value() * SIZE_STEP
         s.briefing = "time" if self.brief_mode.checkedId() == 1 else "startup"
         s.briefing_time = self.brief_time.time().toString("HH:mm")
+        s.sound_on = self.sound_mode.checkedId() != 1
         card = self.cards.checkedButton()
         if card is not None and card.available:
             s.character = card.cid
