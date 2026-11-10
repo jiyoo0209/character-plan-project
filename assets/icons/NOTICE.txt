@@ -4,3 +4,6 @@ https://github.com/googlefonts/noto-emoji
 
 categories/*.png — Noto Emoji (briefcase, books, video game, hot beverage, flexed biceps, pill, airplane, pushpin), 여백을 잘라 가운데 정렬
 Copyright Google LLC. Licensed under the Apache License, Version 2.0.
+
+menu/*.png — Noto Emoji (spiral calendar, gear, see-no-evil monkey, eyes, waving hand), 여백을 잘라 가운데 정렬
+Copyright Google LLC. Licensed under the Apache License, Version 2.0.

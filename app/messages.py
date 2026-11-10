@@ -37,17 +37,61 @@ def day_text(d: date, today: date) -> str:
     return f"{d.month}월 {d.day}일"
 
 
-def before_message(name: str, title: str, when: datetime, now: datetime) -> str:
+# ---- 캐릭터별 말투 ----
+# 치이카와: 짧은 감탄 (와…! 앗…!)  /  우사기: 야하! 우라! 하아?  /  쿠리만쥬: 느긋한 선배 (하아— ~구먼)
+VOICES: dict[str, dict[str, str]] = {
+    "chiikawa": {
+        "hello": "와…! 반가워, {who}!\n나를 누르면 일정을 볼 수 있어…!",
+        "before": "앗…! {who}, {day} {time}에 {title} 일정 있어!\n{minutes}분 남았어…!",
+        "on_time": "와…! {who}, 지금 {title} 시간이야…!",
+        "none": "후…! {who}, 오늘은 남은 일정 없어.\n푹 쉬자…!",
+        "today": "와…! {who}, 오늘 일정 {n}개야!",
+        "more": "· 그리고 {n}개 더…!",
+        "dday_today": "와…! 오늘은 {title} D-day야! 힘내…!",
+        "dday": "D-day도 있어…!",
+    },
+    "usagi": {
+        "hello": "야하! 반가워, {who}!\n나 누르면 일정 보여 줄게! 우라!",
+        "before": "야하! {who}! {day} {time}에 {title}!\n{minutes}분 남았어! 우라!",
+        "on_time": "우라! {who}! 지금 {title} 시간이야!",
+        "none": "하아? {who}, 오늘 남은 일정 없어!\n야하! 놀자!",
+        "today": "야하! {who}! 오늘 일정 {n}개!",
+        "more": "· 그리고 {n}개 더! 우라!",
+        "dday_today": "우라! 오늘은 {title} D-day! 가자!",
+        "dday": "야하! D-day도 있어!",
+    },
+    "kurimanju": {
+        "hello": "하아— 반갑구먼, {who}.\n나를 누르면 일정을 보여 주지.",
+        "before": "하아— {who}, {day} {time}에 {title} 일정이 있구먼.\n{minutes}분 남았네.",
+        "on_time": "하아— {who}, 이제 {title} 시간이구먼.",
+        "none": "하아— {who}, 오늘은 남은 일정이 없구먼.\n느긋하게 쉬게나.",
+        "today": "하아— {who}, 오늘은 일정이 {n}개 있구먼.",
+        "more": "· 그리고 {n}개 더 있네.",
+        "dday_today": "하아— 오늘이 {title} D-day로구먼. 힘내게나.",
+        "dday": "하아— 등록된 D-day도 알려 주지.",
+    },
+}
+
+
+def _line(cid: str, key: str, **kw) -> str:
+    return VOICES.get(cid, VOICES["chiikawa"])[key].format(**kw)
+
+
+def hello_message(name: str, cid: str = "chiikawa") -> str:
+    """처음 실행했을 때 인사."""
+    return _line(cid, "hello", who=call_name(name))
+
+
+def before_message(name: str, title: str, when: datetime, now: datetime, cid: str = "chiikawa") -> str:
     minutes = max(1, round((when - now).total_seconds() / 60))
-    return (
-        f"{call_name(name)}! {day_text(when.date(), now.date())} "
-        f"{time_text(when.hour, when.minute)}에 {title} 일정이 있어!\n"
-        f"{minutes}분 남았어."
+    return _line(
+        cid, "before", who=call_name(name), title=title, minutes=minutes,
+        day=day_text(when.date(), now.date()), time=time_text(when.hour, when.minute),
     )
 
 
-def on_time_message(name: str, title: str) -> str:
-    return f"{call_name(name)}! 지금 {title} 시간이야!"
+def on_time_message(name: str, title: str, cid: str = "chiikawa") -> str:
+    return _line(cid, "on_time", who=call_name(name), title=title)
 
 
 def today_summary(name: str, titles_times: list[tuple[str, str]]) -> str:
@@ -57,3 +101,34 @@ def today_summary(name: str, titles_times: list[tuple[str, str]]) -> str:
     if n == 1:
         return f"{call_name(name)}! 오늘은 {time_text(hh, mm)}에 {title} 일정이 있어."
     return f"{call_name(name)}! 오늘 남은 일정이 {n}개 있어.\n첫 번째는 {time_text(hh, mm)} {title}!"
+
+
+def dday_text(days: int) -> str:
+    """남은 날 → 'D-3' / 'D-day'."""
+    return "D-day" if days <= 0 else f"D-{days}"
+
+
+def briefing_today(name: str, items: list[tuple[str, str]], cid: str = "chiikawa") -> str:
+    """하루 브리핑 ①: 오늘 (남은) 일정. items = [(제목, HH:MM)] 시간 순."""
+    who = call_name(name)
+    if not items:
+        return _line(cid, "none", who=who)
+    lines = [_line(cid, "today", who=who, n=len(items))]
+    for title, hhmm in items[:4]:
+        hh, mm = map(int, hhmm.split(":"))
+        lines.append(f"· {time_text(hh, mm)} {title}")
+    if len(items) > 4:
+        lines.append(_line(cid, "more", n=len(items) - 4))
+    return "\n".join(lines)
+
+
+def briefing_dday(ddays: list[tuple[str, int]], cid: str = "chiikawa") -> str | None:
+    """하루 브리핑 ②: 등록된 D-day. ddays = [(제목, 남은 날)] 가까운 순. 없으면 None."""
+    if not ddays:
+        return None
+    today = [t for t, n in ddays if n <= 0]
+    lines = [_line(cid, "dday_today", title=today[0]) if today else _line(cid, "dday")]
+    for title, n in ddays[:4]:
+        if n > 0 or not today or title != today[0]:
+            lines.append(f"· {title} {dday_text(n)}")
+    return "\n".join(lines)

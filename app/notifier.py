@@ -35,21 +35,37 @@ class Notifier(QObject):
         out: list[str] = []
         dirty = False
 
-        for s in self.store.all():
-            when = s.dt
-            if not s.notified_on_time and when <= now < when + ON_TIME_WINDOW:
-                out.append(messages.on_time_message(st.user_name, s.title))
-                s.notified_on_time = s.notified_before = True
+        # 어제~내일 (자정을 넘는 미리 알림 / 정각 알림 대비). 반복 일정은 그날 한 번씩.
+        today = now.date()
+        occs = [o for d in (today - timedelta(days=1), today, today + timedelta(days=1)) for o in self.store.on_date(d)]
+        for o in occs:
+            when = o.dt
+            if not o.notified_flag("a") and when <= now < when + ON_TIME_WINDOW:
+                out.append(messages.on_time_message(st.user_name, o.title, st.character))
+                o.mark_notified("a")
                 dirty = True
-            elif lead and not s.notified_before and when - lead <= now < when:
-                out.append(messages.before_message(st.user_name, s.title, when, now))
-                s.notified_before = True
+            elif lead and not o.notified_flag("b") and when - lead <= now < when:
+                out.append(messages.before_message(st.user_name, o.title, when, now, st.character))
+                o.mark_notified("b")
                 dirty = True
 
         if dirty:
             self.store.save()
         if out:
             self.alert.emit("\n\n".join(out))
+        return out
+
+    def briefing(self, now: datetime | None = None) -> list[str]:
+        """하루 브리핑: [오늘 남은 일정, (등록된 D-day)] 순서로 말할 문장들."""
+        now = now or datetime.now()
+        st = self.settings()
+        name, cid = st.user_name, st.character
+        rest = [(o.title, o.time) for o in self.store.on_date(now.date()) if o.dt > now]
+        out = [messages.briefing_today(name, rest, cid)]
+        ddays = [(s.title, (d - now.date()).days) for s, d in self.store.upcoming_ddays(now.date())]
+        dmsg = messages.briefing_dday(ddays, cid)
+        if dmsg:
+            out.append(dmsg)
         return out
 
     def today_greeting(self, now: datetime | None = None) -> str | None:

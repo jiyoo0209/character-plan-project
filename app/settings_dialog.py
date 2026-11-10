@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from PySide6.QtCore import QEasingCurve, QPointF, QRectF, QSize, Qt, QVariantAnimation
+from PySide6.QtCore import QEasingCurve, QPointF, QRectF, QSize, Qt, QTime, QVariantAnimation
 from PySide6.QtGui import QColor, QFont, QImageReader, QMovie, QPainter, QPainterPath, QPen, QPixmap
 from PySide6.QtWidgets import (
     QAbstractButton,
@@ -18,13 +18,15 @@ from PySide6.QtWidgets import (
 )
 
 from .config import CHARACTERS, Settings, character_image, pick_image
-from .themes import DEFAULT_THEME, Theme, common_style, theme_for
+from .themes import DEFAULT_THEME, Theme, theme_for
 
 LEAD_CHOICES = (0, 5, 10, 30, 60)  # 미리 알림 선택지(분)
 
 
 def build_style(t: Theme) -> str:
-    return common_style(t) + f"""
+    from .calendar_window import dialog_style  # 시간 칸(TimeField) 스타일 포함
+
+    return dialog_style(t) + f"""
 QDialog {{ background: {t.bg}; }}
 QLabel {{ color: {t.text}; }}
 QLabel#title {{ font-size: 20px; font-weight: bold; color: {t.accent_deep}; }}
@@ -117,7 +119,9 @@ class CharacterCard(QAbstractButton):
                 self._pix = QPixmap(str(image)).scaled(
                     self._size * 2, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation
                 )
+        self._just_toggled = False
         self.toggled.connect(self._on_toggled)
+        self.clicked.connect(self._on_clicked)
 
     def _on_boing(self, v) -> None:
         self._boing = float(v)
@@ -127,7 +131,16 @@ class CharacterCard(QAbstractButton):
         self._anim.stop()
         self._anim.start()
 
+    def _on_clicked(self) -> None:
+        # 이미 고른 카드를 한 번 더 누르면 뽀잉 + GIF 를 다시 보여준다
+        if self._just_toggled:
+            self._just_toggled = False
+        elif self.isChecked():
+            self.boing()
+            self.play_once()
+
     def _on_toggled(self, on: bool) -> None:
+        self._just_toggled = on
         if on:
             self.boing()
             self.play_once()
@@ -280,6 +293,28 @@ class SettingsDialog(QDialog):
             lead_row.addWidget(chip)
         lead_row.addStretch(1)
 
+        # 하루 브리핑: 컴퓨터 켤 때 / 정해진 시간
+        from .calendar_window import TimeField
+
+        self.brief_mode = QButtonGroup(self)
+        self.brief_mode.setExclusive(True)
+        brief_row = QHBoxLayout()
+        brief_row.setSpacing(6)
+        for i, (key, text) in enumerate((("startup", "컴퓨터 켤 때"), ("time", "정해진 시간"))):
+            chip = QPushButton(text)
+            chip.setObjectName("chip")
+            chip.setCheckable(True)
+            chip.setCursor(Qt.CursorShape.PointingHandCursor)
+            chip.setChecked(settings.briefing == key)
+            self.brief_mode.addButton(chip, i)
+            brief_row.addWidget(chip)
+        self.brief_time = TimeField(QTime.fromString(settings.briefing_time, "HH:mm"), theme_for(settings.character))
+        self.brief_time.setFixedWidth(130)
+        brief_row.addWidget(self.brief_time)
+        brief_row.addStretch(1)
+        self.brief_mode.idToggled.connect(lambda *_: self.brief_time.setEnabled(self.brief_mode.checkedId() == 1))
+        self.brief_time.setEnabled(settings.briefing == "time")
+
         # 버튼
         cancel = QPushButton("취소")
         cancel.setObjectName("ghost")
@@ -314,6 +349,12 @@ class SettingsDialog(QDialog):
         lay.addSpacing(14)
         lay.addWidget(self._section("일정은 언제 미리 알려줄까?"))
         lay.addLayout(lead_row)
+        lay.addSpacing(14)
+        lay.addWidget(self._section("하루 브리핑은 언제 해 줄까?"))
+        brief_hint = QLabel("오늘 일정을 먼저 말하고, 등록된 D-day도 알려 줘")
+        brief_hint.setObjectName("subtitle")
+        lay.addWidget(brief_hint)
+        lay.addLayout(brief_row)
         lay.addSpacing(20)
         lay.addLayout(btn_row)
 
@@ -363,6 +404,8 @@ class SettingsDialog(QDialog):
         s = self.settings
         s.user_name = self.name.text().strip()
         s.lead_minutes = max(0, self.leads.checkedId())
+        s.briefing = "time" if self.brief_mode.checkedId() == 1 else "startup"
+        s.briefing_time = self.brief_time.time().toString("HH:mm")
         card = self.cards.checkedButton()
         if card is not None and card.available:
             s.character = card.cid

@@ -120,6 +120,9 @@ class Settings:
     user_name: str = ""  # 캐릭터가 불러줄 이름
     lead_minutes: int = 10  # 일정 몇 분 전에 미리 알려줄지 (0 이면 정각만)
     character: str = DEFAULT_CHARACTER  # CHARACTERS 의 id
+    briefing: str = "startup"  # 하루 브리핑: "startup" = 컴퓨터 켤 때(앱 시작), "time" = 정해진 시간
+    briefing_time: str = "08:30"  # briefing == "time" 일 때 HH:MM
+    last_briefing: str = ""  # 마지막으로 브리핑한 날 (YYYY-MM-DD), 정해진 시간 브리핑을 하루 한 번만
     pos_x: int | None = None  # 캐릭터 위치 (None 이면 화면 오른쪽 아래)
     pos_y: int | None = None
 
@@ -134,6 +137,8 @@ class Settings:
         s.lead_minutes = max(0, int(s.lead_minutes))
         if s.character not in {c for c, _ in CHARACTERS}:
             s.character = DEFAULT_CHARACTER
+        if s.briefing not in ("startup", "time"):
+            s.briefing = "startup"
         return s
 
     def save(self) -> None:

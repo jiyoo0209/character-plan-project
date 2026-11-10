@@ -75,3 +75,21 @@ QPushButton#ghost {{ background: transparent; color: {t.subtext}; border: 2px so
 QPushButton#ghost:hover {{ color: {t.text}; border-color: {t.accent}; }}
 QPushButton#ghost:disabled {{ color: {t.line}; border-color: {t.line}; }}
 """
+
+
+def menu_style(t: Theme) -> str:
+    """우클릭 / 트레이 메뉴."""
+    return f"""
+QMenu {{
+    font-family: "{FONT_FAMILY}"; background: {t.card};
+    border: 2px solid {t.line}; border-radius: 16px; padding: 8px 4px;
+}}
+QMenu::item {{
+    color: {t.text}; font-size: 14px; padding: 8px 26px 8px 10px;
+    margin: 1px 4px; border-radius: 10px;
+}}
+QMenu::item:selected {{ background: {t.soft}; color: {t.accent_deep}; }}
+QMenu::icon {{ padding-left: 12px; }}
+QMenu::separator {{ height: 2px; background: {t.line}; margin: 6px 14px; }}
+QMenu::indicator {{ width: 0; height: 0; }}
+"""

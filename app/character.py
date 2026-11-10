@@ -5,14 +5,18 @@ import bisect
 import math
 from pathlib import Path
 
-from PySide6.QtCore import QElapsedTimer, QPoint, QPointF, QRect, Qt, QTimer, Signal
-from PySide6.QtGui import QColor, QGuiApplication, QImageReader, QPainter, QPainterPath, QPixmap
+from PySide6.QtCore import QElapsedTimer, QPoint, QPointF, QRect, QRectF, Qt, QTimer, Signal
+from PySide6.QtGui import QColor, QFont, QGuiApplication, QImageReader, QPainter, QPainterPath, QPen, QPixmap
 from PySide6.QtWidgets import QHBoxLayout, QLabel, QWidget
+
+from .themes import DEFAULT_THEME, FONT_FAMILY, Theme
 
 FRAME_MS = 33  # 약 30fps
 PAD_SIDE = 14  # 기울어질 때 잘리지 않도록 여백
 PAD_TOP = 34  # 점프 높이만큼 위 여백
 PAD_BOTTOM = 4
+IDLE_LIFT = 6  # 숨쉬기로 떠오르는 최대 높이
+ALERT_LIFT = 26  # 알림 점프 최대 높이
 DRAG_THRESHOLD = 4
 
 
@@ -59,10 +63,30 @@ class CharacterWidget(QWidget):
             if src.isNull():
                 raise FileNotFoundError(image)
             self._pix = src.scaledToHeight(height, Qt.TransformationMode.SmoothTransformation)
+        self._art = self._opaque_rect(self._pix)
         old_bottom_center = self.geometry().center().x(), self.geometry().bottom()
         self.setFixedSize(self._pix.width() + PAD_SIDE * 2, self._pix.height() + PAD_TOP + PAD_BOTTOM)
         if self.isVisible():  # 크기가 바뀌어도 발 위치는 유지
             self.move(old_bottom_center[0] - self.width() // 2, old_bottom_center[1] - self.height() + 1)
+
+    @staticmethod
+    def _opaque_rect(pix: QPixmap) -> QRect:
+        """그림에서 실제로 보이는 부분(투명하지 않은 곳)의 영역. 말풍선 꼬리를 머리에 맞추는 데 쓴다."""
+        img = pix.toImage()
+        w, h = img.width(), img.height()
+        if w == 0 or h == 0:
+            return QRect(0, 0, w, h)
+        step = 2
+        rows = [y for y in range(0, h, step) if any(img.pixelColor(x, y).alpha() > 40 for x in range(0, w, step))]
+        cols = [x for x in range(0, w, step) if any(img.pixelColor(x, y).alpha() > 40 for y in range(0, h, step))]
+        if not rows or not cols:
+            return QRect(0, 0, w, h)
+        return QRect(cols[0], rows[0], cols[-1] - cols[0] + 1, rows[-1] - rows[0] + 1)
+
+    def art_rect(self) -> QRect:
+        """화면 좌표 기준, 캐릭터 그림 중 실제로 보이는 부분 (머리 위 = top)."""
+        b = self.body_rect()
+        return self._art.translated(b.topLeft())
 
     def body_rect(self) -> QRect:
         """화면 좌표 기준 캐릭터 그림 영역 (말풍선 위치 계산용)."""
@@ -114,7 +138,7 @@ class CharacterWidget(QWidget):
         if self.mode == "alert":
             period = 0.55
             p = (t % period) / period
-            lift = 26 * math.sin(math.pi * p)
+            lift = ALERT_LIFT * math.sin(math.pi * p)
             angle = 7 * math.sin(2 * math.pi * t / 0.9)
             land = p < 0.1 or p > 0.9  # 착지할 때 찌그러짐
             sx, sy = (1.08, 0.9) if land else (0.97, 1.04)
@@ -174,14 +198,21 @@ class CharacterWidget(QWidget):
 
 
 class SpeechBubble(QWidget):
+    """캐릭터 머리 위 말풍선 (테마 색).
+
+    꼬리는 항상 캐릭터 머리 꼭대기를 가리킨다. 캐릭터가 화면 오른쪽에 있으면 말풍선은 왼쪽으로,
+    왼쪽에 있으면 오른쪽으로 펼쳐져서 화면 끝에 눌리지 않는다. 위 공간이 없으면 발밑에 뜬다.
+    """
+
     dismissed = Signal()
 
-    RADIUS = 14
-    TAIL = 12
-    BG = QColor(255, 255, 255, 245)
-    BORDER = QColor(53, 89, 74)
+    RADIUS = 18
+    TAIL = 14  # 꼬리 길이
+    SHADOW = 4  # 아래 그림자 여백
+    GAP = 4  # 꼬리 끝과 캐릭터 사이 틈
+    MAX_TEXT_W = 340
 
-    def __init__(self):
+    def __init__(self, theme: Theme = DEFAULT_THEME):
         super().__init__(
             None,
             Qt.WindowType.FramelessWindowHint | Qt.WindowType.Tool | Qt.WindowType.WindowStaysOnTopHint,
@@ -192,43 +223,65 @@ class SpeechBubble(QWidget):
 
         self.label = QLabel()
         self.label.setWordWrap(True)
-        self.label.setMaximumWidth(280)
-        self.label.setStyleSheet("color:#24332c; font-size:14px;")
+        self.label.setMaximumWidth(self.MAX_TEXT_W)
         lay = QHBoxLayout(self)
         lay.addWidget(self.label)
 
+        self.theme = theme
+        self.alert = False  # 일정 알림이면 테두리를 포인트 색으로
         self._tail_up = False
         self._tail_x = 40
         self._hide_timer = QTimer(self)
         self._hide_timer.setSingleShot(True)
         self._hide_timer.timeout.connect(self.dismiss)
+        self.set_theme(theme)
         self._apply_margins()
 
-    def _apply_margins(self) -> None:
-        t = self.TAIL
-        self.layout().setContentsMargins(16, 12 + (t if self._tail_up else 0), 16, 12 + (0 if self._tail_up else t))
+    def set_theme(self, t: Theme) -> None:
+        self.theme = t
+        f = QFont(FONT_FAMILY)
+        f.setPixelSize(15)
+        self.label.setFont(f)
+        self.label.setStyleSheet(f"color: {t.text}; background: transparent;")
+        self.update()
 
-    def say(self, text: str, anchor: QRect, seconds: float) -> None:
-        """anchor(캐릭터 영역) 머리 위에 말풍선을 띄운다. 위 공간이 없으면 아래에."""
+    def _apply_margins(self) -> None:
+        t, sh = self.TAIL, self.SHADOW
+        self.layout().setContentsMargins(
+            18, 13 + (t if self._tail_up else 0), 18, 13 + sh + (0 if self._tail_up else t)
+        )
+
+    def say(self, text: str, anchor: QRect, seconds: float, alert: bool = False) -> None:
+        """anchor(캐릭터 그림이 보이는 영역) 머리 위에 말풍선을 띄운다."""
+        self.alert = alert
         self.label.setText(text)
-        # 줄바꿈 라벨은 adjustSize 시 폭이 좁게 잡히므로, 가장 긴 줄 기준으로 폭을 정한다 (최대 280px)
+        # 줄바꿈 라벨은 adjustSize 시 폭이 좁게 잡히므로, 가장 긴 줄 기준으로 폭을 정한다
         fm = self.label.fontMetrics()
         longest = max(fm.horizontalAdvance(line) for line in text.splitlines() or [""])
-        self.label.setFixedWidth(min(280, longest + 6))
+        self.label.setFixedWidth(min(self.MAX_TEXT_W, longest + 6))
         screen = QGuiApplication.screenAt(anchor.center()) or QGuiApplication.primaryScreen()
         area = screen.availableGeometry()
+        head = QPoint(anchor.center().x(), anchor.top())
 
         for tail_up in (False, True):
             self._tail_up = tail_up
             self._apply_margins()
             self.adjustSize()
-            y = anchor.top() - self.height() + 8 if not tail_up else anchor.bottom() - 8
-            if not tail_up and y >= area.top():
-                break
-        x = anchor.center().x() - self.width() // 2
+            if not tail_up:
+                # 꼬리 끝이 머리 위로 살짝 떨어지게. 캐릭터가 떠오르거나 점프해도 말풍선에 닿지 않도록
+                # 움직이는 높이만큼 더 띄운다 (말풍선이 캐릭터를 가리지 않게)
+                clearance = (ALERT_LIFT + 8 if alert else IDLE_LIFT + 4) + self.GAP
+                y = head.y() - clearance - (self.height() - self.SHADOW)
+                if y >= area.top():
+                    break
+            else:
+                y = anchor.bottom() + self.GAP  # 위가 모자라면 발밑에
+        # 캐릭터가 화면 오른쪽이면 말풍선은 왼쪽으로 (꼬리는 말풍선의 오른쪽 70% 지점), 반대도 마찬가지
+        frac = 0.72 if head.x() > area.center().x() else 0.28
+        x = head.x() - round(self.width() * frac)
         x = max(area.left() + 4, min(x, area.right() - self.width() - 4))
         y = max(area.top(), min(y, area.bottom() - self.height()))
-        self._tail_x = max(self.RADIUS + 8, min(anchor.center().x() - x, self.width() - self.RADIUS - 8))
+        self._tail_x = max(self.RADIUS + 12, min(head.x() - x, self.width() - self.RADIUS - 12))
         self.move(x, y)
         self.show()
         self.raise_()
@@ -244,29 +297,39 @@ class SpeechBubble(QWidget):
     def mouseReleaseEvent(self, _e) -> None:
         self.dismiss()
 
-    def paintEvent(self, _event) -> None:
-        r, t = self.RADIUS, self.TAIL
-        w, h = self.width() - 2, self.height() - 2
+    def _shape(self) -> QPainterPath:
+        r, t, sh = self.RADIUS, self.TAIL, self.SHADOW
+        w, h = self.width() - 3, self.height() - 3 - sh
         top = t if self._tail_up else 0
-        body_h = h - t
+        body = QRectF(1.5, 1.5 + top, w, h - t)
         path = QPainterPath()
-        path.addRoundedRect(1, 1 + top, w, body_h, r, r)
-        tail = QPainterPath()
+        path.addRoundedRect(body, r, r)
         tx = self._tail_x
-        if self._tail_up:
-            tail.moveTo(tx - 9, top + 2)
-            tail.lineTo(tx, 1)
-            tail.lineTo(tx + 9, top + 2)
-        else:
-            tail.moveTo(tx - 9, body_h - 1)
-            tail.lineTo(tx, h)
-            tail.lineTo(tx + 9, body_h - 1)
+        tail = QPainterPath()
+        if self._tail_up:  # 위로 향한 꼬리 (말풍선이 발밑에 있을 때)
+            base = body.top() + 1
+            tail.moveTo(tx - 11, base)
+            tail.quadTo(tx - 2, base - 3, tx + 1, 1.5)
+            tail.quadTo(tx + 4, base - 4, tx + 9, base)
+        else:  # 아래로 향한 꼬리: 살짝 휘어진 말랑한 모양
+            base = body.bottom() - 1
+            tail.moveTo(tx - 11, base)
+            tail.quadTo(tx - 2, base + 3, tx + 1, h + 1.5)
+            tail.quadTo(tx + 4, base + 4, tx + 9, base)
         tail.closeSubpath()
-        path = path.united(tail)
+        return path.united(tail).simplified()
 
+    def paintEvent(self, _event) -> None:
+        t = self.theme
+        shape = self._shape()
         p = QPainter(self)
         p.setRenderHint(QPainter.RenderHint.Antialiasing)
-        p.setPen(self.BORDER)
-        p.setBrush(self.BG)
-        p.drawPath(path.simplified())
+        # 아래로 살짝 그림자
+        p.setPen(Qt.PenStyle.NoPen)
+        p.setBrush(QColor(0, 0, 0, 28))
+        p.drawPath(shape.translated(0, self.SHADOW - 1))
+        # 본체
+        p.setPen(QPen(QColor(t.accent if self.alert else t.line), 3 if self.alert else 2))
+        p.setBrush(QColor(t.card))
+        p.drawPath(shape)
         p.end()

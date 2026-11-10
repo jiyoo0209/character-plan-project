@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import sys
 import traceback
-from datetime import datetime
+from datetime import date, datetime
 
 from PySide6.QtCore import QLockFile, QPoint, Qt, QTimer
 from PySide6.QtGui import QAction, QFont, QFontDatabase, QGuiApplication, QIcon
@@ -14,6 +14,7 @@ from .calendar_window import CalendarWindow
 from .character import CharacterWidget, SpeechBubble
 from .config import (
     APP_TITLE,
+    ASSETS_DIR,
     BUBBLE_SECONDS,
     CHARACTER_SIZE,
     DATA_DIR,
@@ -23,14 +24,18 @@ from .config import (
     Settings,
     character_path,
 )
-from .messages import call_name
+from .messages import hello_message
 from .notifier import Notifier
 from .settings_dialog import SettingsDialog
-from .themes import theme_for
+from .themes import menu_style, theme_for
 from .storage import ScheduleStore
 
 WATCHDOG_MS = 1500
 ALERT_SECONDS = 60  # 알림 말풍선은 클릭하거나 이 시간이 지나면 닫힘
+
+
+def menu_icon(name: str) -> QIcon:
+    return QIcon(str(ASSETS_DIR / "icons" / "menu" / f"{name}.png"))
 
 
 def _load_fonts() -> None:
@@ -62,7 +67,7 @@ class CharacterPlanApp:
         self.hidden_by_user = False
 
         self.character = CharacterWidget(character_path(self.settings.character), CHARACTER_SIZE)
-        self.bubble = SpeechBubble()
+        self.bubble = SpeechBubble(theme_for(self.settings.character))
         self.calendar = CalendarWindow(self.store, theme_for(self.settings.character))
         icon = QIcon(str(ICON_PATH))
         self.qapp.setWindowIcon(icon)
@@ -80,6 +85,11 @@ class CharacterPlanApp:
         self.character.menu_requested.connect(lambda pos: self.menu.exec(pos))
         self.notifier.alert.connect(self.alert)
         self.bubble.dismissed.connect(self._end_alert)
+        self.bubble.dismissed.connect(self._say_next)
+        self._queue: list[str] = []  # 차례로 말할 말풍선 (하루 브리핑: 오늘 일정 → D-day)
+        self.brief_timer = QTimer()
+        self.brief_timer.timeout.connect(self._check_briefing)
+        self.brief_timer.start(30_000)
 
         self._place_character()
         self.character.show()
@@ -97,20 +107,37 @@ class CharacterPlanApp:
         if first_run:
             QTimer.singleShot(400, self._first_run)
         else:
-            QTimer.singleShot(1200, self._greet)
+            QTimer.singleShot(1200, self._startup_briefing)
 
     # ---- 메뉴 ----
     def _build_menu(self) -> QMenu:
+        """우클릭 / 트레이 메뉴 (테마 색, 둥근 모서리, 이모지 아이콘)."""
         m = QMenu()
-        m.addAction("일정 보기", self.calendar.open)
-        m.addAction("설정…", self.open_settings)
+        m.setWindowFlags(m.windowFlags() | Qt.WindowType.FramelessWindowHint | Qt.WindowType.NoDropShadowWindowHint)
+        m.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)  # 둥근 모서리 바깥을 투명하게
+        m.addAction(menu_icon("calendar"), "일정 보기", self.calendar.open)
+        m.addAction(menu_icon("settings"), "설정", self.open_settings)
         m.addSeparator()
-        self.act_hide = QAction("캐릭터 숨기기", m, checkable=True)
+        self.act_hide = QAction(m, checkable=True)
         self.act_hide.toggled.connect(self._set_hidden)
+        self.act_hide.toggled.connect(self._sync_hide_action)
+        self._sync_hide_action(False)
         m.addAction(self.act_hide)
         m.addSeparator()
-        m.addAction("종료", self.qapp.quit)
+        m.addAction(menu_icon("quit"), "종료", self.qapp.quit)
+        m.setStyleSheet(menu_style(theme_for(self.settings.character)))
         return m
+
+    def _sync_hide_action(self, hidden: bool) -> None:
+        # 체크 표시 대신 글자와 아이콘이 바뀐다
+        self.act_hide.setText("캐릭터 보이기" if hidden else "캐릭터 숨기기")
+        self.act_hide.setIcon(menu_icon("show" if hidden else "hide"))
+
+    def apply_theme(self) -> None:
+        t = theme_for(self.settings.character)
+        self.calendar.set_theme(t)
+        self.bubble.set_theme(t)
+        self.menu.setStyleSheet(menu_style(t))
 
     def _on_tray(self, reason) -> None:
         if reason in (QSystemTrayIcon.ActivationReason.Trigger, QSystemTrayIcon.ActivationReason.DoubleClick):
@@ -153,7 +180,7 @@ class CharacterPlanApp:
     def say(self, text: str, seconds: float | None = None) -> None:
         if self.hidden_by_user:
             return
-        self.bubble.say(text, self.character.body_rect(), seconds or BUBBLE_SECONDS)
+        self.bubble.say(text, self.character.art_rect(), seconds or BUBBLE_SECONDS, alert=self.character.mode == "alert")
 
     def alert(self, text: str) -> None:
         if self.hidden_by_user:
@@ -168,18 +195,48 @@ class CharacterPlanApp:
             self.character.stop_alert()
             desktop.set_topmost(self._hwnd, False)
 
+    def say_sequence(self, texts: list[str]) -> None:
+        """말풍선 여러 개를 차례로 (하나가 닫히면 다음)."""
+        texts = [t for t in texts if t]
+        if not texts:
+            return
+        self._queue = texts[1:]
+        first = texts[0]
+        self.say(first, max(BUBBLE_SECONDS, 3 + 1.6 * first.count("\n")))
+
+    def _say_next(self) -> None:
+        if self._queue and self.character.mode != "alert":
+            nxt = self._queue.pop(0)
+            QTimer.singleShot(450, lambda: self.say(nxt, max(BUBBLE_SECONDS, 3 + 1.6 * nxt.count("\n"))))
+
+    # ---- 하루 브리핑 ----
+    def brief(self) -> None:
+        """오늘 일정부터 말하고, 이어서 등록된 D-day 를 알려 준다."""
+        self.settings.last_briefing = date.today().isoformat()
+        self.settings.save()
+        self.say_sequence(self.notifier.briefing())
+
+    def _startup_briefing(self) -> None:
+        if self.settings.briefing == "startup":
+            self.brief()  # 컴퓨터 켤 때 (자동 실행으로 앱이 켜질 때)
+        else:
+            self._check_briefing()  # 정해진 시간이 이미 지났는데 오늘 아직 안 했으면 지금
+
+    def _check_briefing(self) -> None:
+        s = self.settings
+        if s.briefing != "time" or s.last_briefing == date.today().isoformat():
+            return
+        if datetime.now().strftime("%H:%M") >= s.briefing_time:
+            self.brief()
+
     def _on_character_clicked(self) -> None:
+        self._queue.clear()
         self.bubble.dismiss()  # 알림 중이면 알림도 같이 끝남
         self.calendar.open()
 
-    def _greet(self) -> None:
-        msg = self.notifier.today_greeting()
-        if msg:
-            self.say(msg)
-
     def _first_run(self) -> None:
         self.open_settings(first_run=True)
-        self.say(f"반가워, {call_name(self.settings.user_name)}!\n나를 누르면 일정을 볼 수 있어.")
+        self.say(hello_message(self.settings.user_name, self.settings.character))
 
     # ---- 설정 ----
     def open_settings(self, first_run: bool = False) -> None:
@@ -191,7 +248,7 @@ class CharacterPlanApp:
             else:
                 self.settings.save()  # 첫 실행에서 취소해도 다음엔 묻지 않도록
             self.character.set_image(character_path(self.settings.character), CHARACTER_SIZE)
-            self.calendar.set_theme(theme_for(self.settings.character))
+            self.apply_theme()
 
 
 def run() -> int:
