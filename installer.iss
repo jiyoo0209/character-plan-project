@@ -3,7 +3,9 @@
 ; 설치 폴더\data\schedules.json 에 바로 쓸 수 있음.
 
 #define AppName "CharacterPlan"
-#define AppVersion "0.1.0"
+#ifndef AppVersion
+  #define AppVersion "0.1.0"
+#endif
 #define AppExe "CharacterPlan.exe"
 
 [Setup]
@@ -22,6 +24,7 @@ Compression=lzma2
 SolidCompression=yes
 WizardStyle=modern
 CloseApplications=yes
+RestartApplications=no
 
 [Languages]
 Name: "korean"; MessagesFile: "compiler:Languages\Korean.isl"
@@ -47,6 +50,8 @@ Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueName: 
 
 [Run]
 Filename: "{app}\{#AppExe}"; Description: "지금 실행"; Flags: nowait postinstall skipifsilent
+; 자동 업데이트(조용히 설치)가 끝나면 앱을 다시 켠다
+Filename: "{app}\{#AppExe}"; Flags: nowait; Check: WizardSilent
 
 [UninstallRun]
 Filename: "taskkill"; Parameters: "/F /IM {#AppExe}"; Flags: runhidden; RunOnceId: "KillApp"

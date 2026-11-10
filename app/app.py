@@ -23,11 +23,15 @@ from .config import (
     SETTINGS_FILE,
     Settings,
     character_path,
+    is_frozen,
 )
 from .messages import hello_message
 from .notifier import Notifier
 from .settings_dialog import SettingsDialog
 from .themes import menu_style, theme_for
+from .update_dialog import UpdateDialog
+from .updater import Downloader, Release, UpdateChecker, launch_installer
+from .version import __version__
 from .storage import ScheduleStore
 
 WATCHDOG_MS = 1500
@@ -91,6 +95,15 @@ class CharacterPlanApp:
         self.brief_timer.timeout.connect(self._check_briefing)
         self.brief_timer.start(30_000)
 
+        # 자동 업데이트: 켜질 때 + 6시간마다 깃허브 최신 버전 확인 (설치된 exe 에서만)
+        self.updater = UpdateChecker(__version__)
+        self.updater.found.connect(self._on_update_found)
+        self.update_timer = QTimer()
+        self.update_timer.timeout.connect(self.updater.start)
+        self._update_dlg: UpdateDialog | None = None
+        self._downloader: Downloader | None = None
+        self._declined: set[str] = set()  # 이번에 '나중에' 누른 버전 (다시 켜면 또 물어봄)
+
         self._place_character()
         self.character.show()
         self._hwnd = int(self.character.winId())
@@ -108,6 +121,10 @@ class CharacterPlanApp:
             QTimer.singleShot(400, self._first_run)
         else:
             QTimer.singleShot(1200, self._startup_briefing)
+            if is_frozen():
+                QTimer.singleShot(5000, self.updater.start)
+        if is_frozen():
+            self.update_timer.start(6 * 60 * 60 * 1000)
 
     # ---- 메뉴 ----
     def _build_menu(self) -> QMenu:
@@ -237,6 +254,51 @@ class CharacterPlanApp:
     def _first_run(self) -> None:
         self.open_settings(first_run=True)
         self.say(hello_message(self.settings.user_name, self.settings.character))
+
+    # ---- 업데이트 ----
+    def _on_update_found(self, rel: Release) -> None:
+        if self._update_dlg is not None or rel.version in self._declined:
+            return
+        dlg = UpdateDialog(None, theme_for(self.settings.character), __version__, rel.version, rel.notes)
+        dlg.setWindowIcon(self.qapp.windowIcon())
+        dlg.update_clicked.connect(lambda: self._start_update(dlg, rel))
+        dlg.rejected.connect(lambda: self._close_update(rel))
+        self._update_dlg = dlg
+        dlg.show()
+        dlg.raise_()
+        dlg.activateWindow()
+
+    def _close_update(self, rel: Release) -> None:
+        if self._downloader is not None:
+            self._downloader.cancel()  # 받는 중에 '그만 받기' / ×
+            self._downloader = None
+        else:
+            self._declined.add(rel.version)  # '나중에'
+        self._update_dlg = None
+
+    def _start_update(self, dlg: UpdateDialog, rel: Release) -> None:
+        dlg.set_stage("download")
+        dlg.set_progress(0, rel.size)
+        dl = Downloader(rel)
+        dl.progress.connect(dlg.set_progress)
+        dl.done.connect(lambda path: self._install_update(dlg, path))
+        dl.failed.connect(lambda _why: self._update_failed(dlg))
+        self._downloader = dl
+        dl.start()
+
+    def _update_failed(self, dlg: UpdateDialog) -> None:
+        self._downloader = None
+        dlg.set_stage("error")
+
+    def _install_update(self, dlg: UpdateDialog, path: str) -> None:
+        self._downloader = None
+        dlg.set_stage("install")
+        try:
+            launch_installer(path)
+        except OSError:
+            dlg.set_stage("error")
+            return
+        QTimer.singleShot(900, self.qapp.quit)  # 설치 파일이 파일을 바꿀 수 있게 앱은 꺼진다
 
     # ---- 설정 ----
     def open_settings(self, first_run: bool = False) -> None:

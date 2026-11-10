@@ -112,6 +112,15 @@ python main.py
 설치 파일은 `%LOCALAPPDATA%\Programs\CharacterPlan` 에 관리자 권한 없이 설치되고, Windows 시작 시 자동 실행이 등록됩니다.
 Inno Setup 에 한국어 언어 파일이 없다는 오류가 나면 `installer.iss` 의 `[Languages]` 를 `compiler:Default.isl` 로 바꾸세요.
 
+## 자동 업데이트
+
+1. `main` 에 파일을 올리면 GitHub Actions 가 설치 파일을 만들고 **Releases** 에 새 버전(`v0.2.<빌드 번호>`)으로 올립니다.
+   릴리스의 '달라진 점'은 지난 릴리스 이후 커밋 메시지에서 뽑습니다 (본문의 `- ` 줄, 없으면 제목. `Add files via upload` 같은 기본 메시지는 빠짐).
+2. 설치된 앱은 켜질 때(5초 뒤)와 6시간마다 최신 릴리스를 확인하고, 새 버전이면 업데이트 창을 띄웁니다.
+3. '지금 업데이트' → 설치 파일을 받아 조용히 설치(`/VERYSILENT`) → 앱이 꺼졌다가 다시 켜집니다. 일정·설정(`data\`)은 그대로 남습니다.
+
+소스로 실행할 때(`python main.py`)는 확인하지 않습니다.
+
 ## 구조
 
 ```
@@ -120,6 +129,10 @@ app/app.py               전체 조립 (트레이, 메뉴, 알림 흐름, 중복
 app/character.py         캐릭터 창(애니메이션·드래그) + 말풍선
 app/calendar_window.py   달력 / 일정 편집
 app/settings_dialog.py   설정 창 (캐릭터 고르기, 이름, 미리 알림)
+app/frame.py             둥근 창 테두리 + 창 버튼
+app/updater.py           자동 업데이트 (최신 릴리스 확인, 설치 파일 받기·실행)
+app/update_dialog.py     업데이트 창
+app/version.py           앱 버전 (빌드할 때 CI 가 채움)
 app/themes.py            캐릭터별 색 테마
 app/categories.py        일정 카테고리 목록 (이름 + 이모지 아이콘)
 app/recurrence.py        반복 일정 규칙 (매일/매주/매월/매년, 종료일)
@@ -134,6 +147,7 @@ assets/icon.ico          아이콘
 assets/fonts/            폰트 (주아, SIL OFL)
 assets/icons/            작은 아이콘 (테마 색 리본, 카테고리 이모지: Noto Emoji, Apache 2.0)
 tools/make_character.py  기본 캐릭터 이미지 생성 스크립트
+tools/release_notes.py   릴리스 '달라진 점' 만들기 (CI)
 ```
 
 ### 바탕화면 고정 방식
