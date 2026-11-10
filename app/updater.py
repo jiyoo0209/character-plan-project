@@ -8,20 +8,79 @@ from __future__ import annotations
 import json
 import os
 import re
+import ssl
 import subprocess
 import tempfile
 import threading
+import urllib.error
 import urllib.request
 from dataclasses import dataclass, field
+from datetime import datetime
 from pathlib import Path
 
 from PySide6.QtCore import QObject, Signal
+
+from .config import DATA_DIR
 
 REPO = "jiyoo0209/character-plan-project"
 LATEST_API = f"https://api.github.com/repos/{REPO}/releases/latest"
 ASSET_NAME = "CharacterPlan-Setup.exe"
 TIMEOUT = 10
 CHUNK = 64 * 1024
+LOG_FILE = DATA_DIR / "update.log"
+
+
+def _contexts() -> list[ssl.SSLContext]:
+    """HTTPS 인증서 확인 방법들 (앞에서부터 시도).
+
+    1) truststore: 윈도우가 직접 인증서를 확인 (브라우저처럼 필요한 루트 인증서를 알아서 받아 옴)
+    2) certifi: 앱에 같이 넣은 인증서 묶음
+    3) 파이썬 기본 (윈도우 인증서 저장소를 읽기만 함: 루트 인증서가 아직 없는 PC 에선 실패할 수 있음)
+    """
+    out: list[ssl.SSLContext] = []
+    try:
+        import truststore
+        out.append(truststore.SSLContext(ssl.PROTOCOL_TLS_CLIENT))
+    except Exception:
+        pass
+    try:
+        import certifi
+        out.append(ssl.create_default_context(cafile=certifi.where()))
+    except Exception:
+        pass
+    out.append(ssl.create_default_context())
+    return out
+
+
+_good_ctx: ssl.SSLContext | None = None  # 한 번 통한 방법은 기억해 두고 계속 쓴다
+
+
+def _open(url: str):
+    """url 을 연다. 인증서 문제로 실패하면 다른 확인 방법으로 다시 시도한다."""
+    global _good_ctx
+    tries = [_good_ctx] if _good_ctx is not None else _contexts()
+    last: Exception | None = None
+    for ctx in tries:
+        try:
+            r = urllib.request.urlopen(_request(url), timeout=TIMEOUT, context=ctx)
+            _good_ctx = ctx
+            return r
+        except urllib.error.HTTPError:
+            raise  # 서버가 대답은 했음 (404 등): 다른 방법으로 해도 같다
+        except Exception as e:
+            last = e
+    _good_ctx = None
+    raise last if last else OSError("연결 실패")
+
+
+def log_error(where: str, e: BaseException) -> None:
+    """업데이트 실패 이유를 data/update.log 에 남긴다 (최근 것만 짧게)."""
+    try:
+        old = LOG_FILE.read_text(encoding="utf-8").splitlines()[-200:] if LOG_FILE.exists() else []
+        new = [f"[{datetime.now():%Y-%m-%d %H:%M:%S}] {where}: {type(e).__name__}: {e}"]
+        LOG_FILE.write_text("\n".join(old + new) + "\n", encoding="utf-8")
+    except OSError:
+        pass
 
 
 @dataclass
@@ -62,7 +121,7 @@ def _request(url: str) -> urllib.request.Request:
 
 
 def fetch_latest() -> Release | None:
-    with urllib.request.urlopen(_request(LATEST_API), timeout=TIMEOUT) as r:
+    with _open(LATEST_API) as r:
         data = json.load(r)
     if data.get("draft") or data.get("prerelease"):
         return None
@@ -103,7 +162,8 @@ class UpdateChecker(QObject):
                 self.found.emit(rel, manual)
             elif manual:
                 self.up_to_date.emit()
-        except Exception:  # 인터넷이 없거나 깃허브가 응답하지 않으면 다음에 다시
+        except Exception as e:  # 인터넷이 없거나 깃허브가 응답하지 않으면 다음에 다시
+            log_error("확인", e)
             if manual:
                 self.failed.emit()
         finally:
@@ -132,7 +192,7 @@ class Downloader(QObject):
         target = Path(tempfile.gettempdir()) / f"CharacterPlan-Setup-{self.release.version}.exe"
         part = target.with_suffix(".part")
         try:
-            with urllib.request.urlopen(_request(self.release.url), timeout=TIMEOUT) as r, open(part, "wb") as f:
+            with _open(self.release.url) as r, open(part, "wb") as f:
                 total = int(r.headers.get("Content-Length") or self.release.size or 0)
                 got = 0
                 while chunk := r.read(CHUNK):
@@ -150,6 +210,7 @@ class Downloader(QObject):
             self.done.emit(str(target))
         except Exception as e:
             part.unlink(missing_ok=True)
+            log_error("받기", e)
             if not self._cancel.is_set():
                 self.failed.emit(str(e))
 

@@ -1,1 +1,3 @@
 PySide6-Essentials>=6.6
+truststore>=0.9  # 업데이트 확인: 윈도우 인증서 확인 사용
+certifi  # 업데이트 확인: 예비 인증서 묶음

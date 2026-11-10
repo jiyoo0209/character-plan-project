@@ -122,6 +122,8 @@ Inno Setup 에 한국어 언어 파일이 없다는 오류가 나면 `installer.
 
 소스로 실행할 때(`python main.py`)는 확인하지 않습니다.
 
+인증서는 윈도우가 직접 확인하고(`truststore`), 안 되면 앱에 넣은 인증서 묶음(`certifi`)으로 다시 시도합니다. 확인·받기에 실패하면 이유가 `data\update.log` 에 남습니다.
+
 ## 구조
 
 ```
