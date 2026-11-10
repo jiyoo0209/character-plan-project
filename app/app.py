@@ -25,7 +25,7 @@ from .config import (
     character_path,
     is_frozen,
 )
-from .messages import hello_message
+from .messages import hello_message, update_check_message
 from .notifier import Notifier
 from .settings_dialog import SettingsDialog
 from .themes import menu_style, theme_for
@@ -99,6 +99,8 @@ class CharacterPlanApp:
         self.updater = UpdateChecker(__version__)
         self.updater.found.connect(self._on_update_found)
         self.update_timer = QTimer()
+        self.updater.up_to_date.connect(lambda: self.say(update_check_message("latest", self.settings.character, __version__)))
+        self.updater.failed.connect(lambda: self.say(update_check_message("check_fail", self.settings.character)))
         self.update_timer.timeout.connect(self.updater.start)
         self._update_dlg: UpdateDialog | None = None
         self._downloader: Downloader | None = None
@@ -141,7 +143,10 @@ class CharacterPlanApp:
         self._sync_hide_action(False)
         m.addAction(self.act_hide)
         m.addSeparator()
+        m.addAction(menu_icon("update"), "업데이트 확인", self.check_update)
         m.addAction(menu_icon("quit"), "종료", self.qapp.quit)
+        ver = m.addAction(f"버전 {__version__}")  # 맨 아래 작은 회색 글씨
+        ver.setEnabled(False)
         m.setStyleSheet(menu_style(theme_for(self.settings.character)))
         return m
 
@@ -256,9 +261,21 @@ class CharacterPlanApp:
         self.say(hello_message(self.settings.user_name, self.settings.character))
 
     # ---- 업데이트 ----
-    def _on_update_found(self, rel: Release) -> None:
-        if self._update_dlg is not None or rel.version in self._declined:
+    def check_update(self) -> None:
+        """메뉴 '업데이트 확인': 말풍선으로 확인 중 → 새 버전이면 업데이트 창, 아니면 최신이라고 알려 줌."""
+        if self._update_dlg is not None:
+            self._update_dlg.raise_()
+            self._update_dlg.activateWindow()
             return
+        self._queue.clear()
+        self.say(update_check_message("checking", self.settings.character), 4)
+        self.updater.start(manual=True)
+
+    def _on_update_found(self, rel: Release, manual: bool = False) -> None:
+        if self._update_dlg is not None or (rel.version in self._declined and not manual):
+            return
+        if manual:
+            self.bubble.dismiss()
         dlg = UpdateDialog(None, theme_for(self.settings.character), __version__, rel.version, rel.notes)
         dlg.setWindowIcon(self.qapp.windowIcon())
         dlg.update_clicked.connect(lambda: self._start_update(dlg, rel))

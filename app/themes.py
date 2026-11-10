@@ -89,6 +89,8 @@ QMenu::item {{
     margin: 1px 4px; border-radius: 10px;
 }}
 QMenu::item:selected {{ background: {t.soft}; color: {t.accent_deep}; }}
+QMenu::item:disabled {{ color: {t.subtext}; font-size: 12px; padding: 4px 26px 2px 10px; }}
+QMenu::item:disabled:selected {{ background: transparent; color: {t.subtext}; }}
 QMenu::icon {{ padding-left: 12px; }}
 QMenu::separator {{ height: 2px; background: {t.line}; margin: 6px 14px; }}
 QMenu::indicator {{ width: 0; height: 0; }}

@@ -41,6 +41,9 @@ def day_text(d: date, today: date) -> str:
 # 치이카와: 짧은 감탄 (와…! 앗…!)  /  우사기: 야하! 우라! 하아?  /  쿠리만쥬: 느긋한 선배 (하아— ~구먼)
 VOICES: dict[str, dict[str, str]] = {
     "chiikawa": {
+        "checking": "새 버전 있나 볼게…!",
+        "latest": "와…! 지금이 최신 버전이야!\n(v{ver})",
+        "check_fail": "앗…! 확인을 못 했어.\n인터넷을 확인해 줘…!",
         "hello": "와…! 반가워, {who}!\n나를 누르면 일정을 볼 수 있어…!",
         "before": "앗…! {who}, {day} {time}에 {title} 일정 있어!\n{minutes}분 남았어…!",
         "on_time": "와…! {who}, 지금 {title} 시간이야…!",
@@ -51,6 +54,9 @@ VOICES: dict[str, dict[str, str]] = {
         "dday": "D-day도 있어…!",
     },
     "usagi": {
+        "checking": "야하! 새 버전 찾아볼게!",
+        "latest": "야하! 최신 버전이야! 우라!\n(v{ver})",
+        "check_fail": "하아? 확인이 안 돼!\n인터넷 좀 봐 줘!",
         "hello": "야하! 반가워, {who}!\n나 누르면 일정 보여 줄게! 우라!",
         "before": "야하! {who}! {day} {time}에 {title}!\n{minutes}분 남았어! 우라!",
         "on_time": "우라! {who}! 지금 {title} 시간이야!",
@@ -61,6 +67,9 @@ VOICES: dict[str, dict[str, str]] = {
         "dday": "야하! D-day도 있어!",
     },
     "kurimanju": {
+        "checking": "하아— 어디 한번 볼까.",
+        "latest": "하아— 이미 최신 버전이구먼.\n(v{ver})",
+        "check_fail": "하아— 확인이 안 되는구먼.\n인터넷을 한번 보게나.",
         "hello": "하아— 반갑구먼, {who}.\n나를 누르면 일정을 보여 주지.",
         "before": "하아— {who}, {day} {time}에 {title} 일정이 있구먼.\n{minutes}분 남았네.",
         "on_time": "하아— {who}, 이제 {title} 시간이구먼.",
@@ -80,6 +89,11 @@ def _line(cid: str, key: str, **kw) -> str:
 def hello_message(name: str, cid: str = "chiikawa") -> str:
     """처음 실행했을 때 인사."""
     return _line(cid, "hello", who=call_name(name))
+
+
+def update_check_message(kind: str, cid: str = "chiikawa", ver: str = "") -> str:
+    """메뉴의 '업데이트 확인' 말풍선. kind: checking / latest / check_fail."""
+    return _line(cid, kind, ver=ver)
 
 
 def before_message(name: str, title: str, when: datetime, now: datetime, cid: str = "chiikawa") -> str:

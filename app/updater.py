@@ -80,26 +80,32 @@ def fetch_latest() -> Release | None:
 class UpdateChecker(QObject):
     """뒤에서 최신 버전을 확인한다. 새 버전이 있을 때만 found 를 보낸다 (오류는 조용히 넘김)."""
 
-    found = Signal(object)  # Release
+    found = Signal(object, bool)  # (Release, 직접 눌러서 확인했나)
+    up_to_date = Signal()  # 직접 확인했을 때만
+    failed = Signal()  # 직접 확인했을 때만
 
     def __init__(self, current: str):
         super().__init__()
         self.current = current
         self._busy = False
 
-    def start(self) -> None:
+    def start(self, manual: bool = False) -> None:
+        """manual=True: 메뉴의 '업데이트 확인' → 최신이어도 / 실패해도 알려 준다."""
         if self._busy:
             return
         self._busy = True
-        threading.Thread(target=self._run, daemon=True).start()
+        threading.Thread(target=self._run, args=(manual,), daemon=True).start()
 
-    def _run(self) -> None:
+    def _run(self, manual: bool) -> None:
         try:
             rel = fetch_latest()
             if rel and is_newer(rel.version, self.current):
-                self.found.emit(rel)
+                self.found.emit(rel, manual)
+            elif manual:
+                self.up_to_date.emit()
         except Exception:  # 인터넷이 없거나 깃허브가 응답하지 않으면 다음에 다시
-            pass
+            if manual:
+                self.failed.emit()
         finally:
             self._busy = False
 
