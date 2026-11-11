@@ -1373,7 +1373,8 @@ class ScheduleDelegate(QStyledItemDelegate):
         self.theme = theme
 
     def sizeHint(self, option, index) -> QSize:
-        return QSize(option.rect.width(), 74 if (index.data(ROLE_MEMO) or index.data(ROLE_REPEAT)) else 56)
+        # 폭은 목록 폭을 그대로 따라간다 (예전 폭을 기억하면 세로 스크롤바가 생길 때 가로로 넘친다)
+        return QSize(1, 74 if (index.data(ROLE_MEMO) or index.data(ROLE_REPEAT)) else 56)
 
     def paint(self, p: QPainter, option: QStyleOptionViewItem, index) -> None:
         t = self.theme
@@ -1514,6 +1515,8 @@ class CalendarWindow(QWidget):
         self.list.setObjectName("schedules")
         self.list.setMouseTracking(True)
         self.list.setVerticalScrollMode(QListWidget.ScrollMode.ScrollPerPixel)
+        self.list.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.list.setResizeMode(QListWidget.ResizeMode.Adjust)
         self.delegate = ScheduleDelegate(theme, self.list)
         self.list.setItemDelegate(self.delegate)
         self.list.itemDoubleClicked.connect(lambda _i: self.edit())

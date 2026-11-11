@@ -23,9 +23,9 @@ def build_style(t: Theme) -> str:
     return dialog_style(t) + f"""
 QDialog {{ background: transparent; }}
 QLabel {{ color: {t.text}; }}
-QLabel#title {{ font-size: 20px; font-weight: bold; color: {t.accent_deep}; }}
+QLabel#title {{ font-size: 20px; color: {t.accent_deep}; }}
 QLabel#subtitle {{ font-size: 13px; color: {t.subtext}; }}
-QLabel#section {{ font-size: 13px; font-weight: bold; color: {t.text}; }}
+QLabel#section {{ font-size: 13px; color: {t.text}; }}
 QLabel#sizeEnd {{ font-size: 12px; color: {t.subtext}; }}
 QSlider {{ min-height: 22px; }}
 QSlider::groove:horizontal {{ height: 8px; background: {t.card}; border: 1px solid {t.line}; border-radius: 4px; }}
@@ -273,7 +273,6 @@ class CharacterCard(QAbstractButton):
             p.drawEllipse(box.adjusted(10, 10, -10, -10))
             f = QFont(self.font())
             f.setPixelSize(28)
-            f.setBold(True)
             p.setFont(f)
             p.setPen(mark)
             p.drawText(box, Qt.AlignmentFlag.AlignCenter, "?")
@@ -282,7 +281,6 @@ class CharacterCard(QAbstractButton):
         # 이름
         f = QFont(self.font())
         f.setPixelSize(13)
-        f.setBold(on)
         p.setFont(f)
         p.setPen(QColor(t.accent_deep if on else t.text))
         name_box = QRectF(r.left(), box.bottom() + 6, r.width(), 22)

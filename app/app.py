@@ -360,8 +360,11 @@ def run() -> int:
     qapp = QApplication(sys.argv)
     qapp.setApplicationName(APP_TITLE)
     qapp.setQuitOnLastWindowClosed(False)  # 달력 창을 닫아도 계속 실행
-    if sys.platform == "win32":
-        qapp.setFont(QFont("Malgun Gothic", 9))
+    base = QFont("Malgun Gothic", 9) if sys.platform == "win32" else qapp.font()
+    # 100% 배율에서 글자를 화면 칸에 억지로 맞추면 주아체가 각지고 뭉개져 보인다 → 맞춤 끄고 부드럽게
+    base.setHintingPreference(QFont.HintingPreference.PreferNoHinting)
+    base.setStyleStrategy(QFont.StyleStrategy.PreferAntialias)
+    qapp.setFont(base)
     _load_fonts()
     _install_error_log()
 

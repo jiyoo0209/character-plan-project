@@ -63,10 +63,10 @@ QPushButton#chip {{
 }}
 QPushButton#chip:hover {{ border-color: {t.accent}; }}
 QPushButton#chip:checked {{
-    background: {t.accent}; color: {t.on_accent}; font-weight: bold; border-color: {t.accent};
+    background: {t.accent}; color: {t.on_accent}; border-color: {t.accent};
 }}
 QPushButton#primary, QPushButton#ghost {{
-    font-size: 14px; font-weight: bold; border-radius: 19px; padding: 8px 22px; min-height: 20px;
+    font-size: 14px; border-radius: 19px; padding: 8px 22px; min-height: 20px;
 }}
 QPushButton#primary {{ background: {t.accent}; color: {t.on_accent}; border: 2px solid {t.accent}; }}
 QPushButton#primary:hover {{ background: {t.accent_deep}; border-color: {t.accent_deep}; color: white; }}
