@@ -215,7 +215,9 @@ class SpeechBubble(QWidget):
     def __init__(self, theme: Theme = DEFAULT_THEME):
         super().__init__(
             None,
-            Qt.WindowType.FramelessWindowHint | Qt.WindowType.Tool | Qt.WindowType.WindowStaysOnTopHint,
+            # 항상 맨 위가 아니라 캐릭터처럼 바탕화면 층에 뜬다 (다른 창이 위에 있으면 가려짐).
+            # 쌓임 순서는 app.py 에서 desktop.stack_under 로 캐릭터 바로 아래에 맞춘다.
+            Qt.WindowType.FramelessWindowHint | Qt.WindowType.Tool,
         )
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
         self.setAttribute(Qt.WidgetAttribute.WA_ShowWithoutActivating)
@@ -284,7 +286,6 @@ class SpeechBubble(QWidget):
         self._tail_x = max(self.RADIUS + 12, min(head.x() - x, self.width() - self.RADIUS - 12))
         self.move(x, y)
         self.show()
-        self.raise_()
         self.update()
         self._hide_timer.start(int(seconds * 1000))
 

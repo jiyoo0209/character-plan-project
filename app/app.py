@@ -6,7 +6,7 @@ import traceback
 from datetime import date, datetime
 
 from PySide6.QtCore import QLockFile, QPoint, Qt, QTimer
-from PySide6.QtGui import QAction, QFont, QFontDatabase, QGuiApplication, QIcon
+from PySide6.QtGui import QAction, QColor, QFont, QFontDatabase, QGuiApplication, QIcon, QPixmap
 from PySide6.QtWidgets import QApplication, QMenu, QSystemTrayIcon
 
 from . import autostart, desktop
@@ -16,6 +16,7 @@ from .config import (
     APP_TITLE,
     ASSETS_DIR,
     BUBBLE_SECONDS,
+    CHARACTERS,
     DATA_DIR,
     FONTS_DIR,
     ICON_PATH,
@@ -37,6 +38,15 @@ from .storage import ScheduleStore
 
 WATCHDOG_MS = 1500
 ALERT_SECONDS = 60  # 알림 말풍선은 클릭하거나 이 시간이 지나면 닫힘
+BLINK_MS = 500  # 트레이 아이콘 깜빡이는 간격
+BLINK_MAX_MS = 5 * 60 * 1000  # 안 눌러도 5분 뒤엔 깜빡임을 멈춘다
+TOAST_MS = 10_000  # 윈도우 알림 표시 시간 (윈도우 설정에 따라 다를 수 있음)
+
+
+def _blank_pixmap() -> QPixmap:
+    pm = QPixmap(32, 32)
+    pm.fill(QColor(0, 0, 0, 0))
+    return pm
 
 
 def menu_icon(name: str) -> QIcon:
@@ -114,6 +124,20 @@ class CharacterPlanApp:
         self._hwnd = int(self.character.winId())
         desktop.pin_to_desktop(self._hwnd)
         desktop.send_to_bottom(self._hwnd)
+        self._bubble_hwnd = int(self.bubble.winId())
+        desktop.pin_to_desktop(self._bubble_hwnd)
+
+        # 일정 알림 때 작업 표시줄(트레이) 아이콘 깜빡이기: 아이콘 ↔ 빈 아이콘
+        self._tray_icon = self.tray.icon()
+        self._blank_icon = QIcon(_blank_pixmap())
+        self._blink_on = False
+        self.blink_timer = QTimer()
+        self.blink_timer.setInterval(BLINK_MS)
+        self.blink_timer.timeout.connect(self._blink)
+        self.blink_stop = QTimer()
+        self.blink_stop.setSingleShot(True)
+        self.blink_stop.timeout.connect(self.stop_blink)
+        self.tray.messageClicked.connect(self._on_toast_clicked)
 
         self.watchdog = QTimer()
         self.watchdog.timeout.connect(self._watch)
@@ -167,7 +191,29 @@ class CharacterPlanApp:
 
     def _on_tray(self, reason) -> None:
         if reason in (QSystemTrayIcon.ActivationReason.Trigger, QSystemTrayIcon.ActivationReason.DoubleClick):
+            self.stop_blink()
             self.calendar.open()
+
+    # ---- 트레이 깜빡임 / 윈도우 알림 ----
+    def _blink(self) -> None:
+        self._blink_on = not self._blink_on
+        self.tray.setIcon(self._blank_icon if self._blink_on else self._tray_icon)
+
+    def start_blink(self) -> None:
+        self._blink_on = False
+        self.blink_timer.start()
+        self.blink_stop.start(BLINK_MAX_MS)  # 안 눌러도 몇 분 뒤엔 멈춘다
+
+    def stop_blink(self) -> None:
+        if self.blink_timer.isActive() or self._blink_on:
+            self.blink_timer.stop()
+            self.blink_stop.stop()
+            self._blink_on = False
+            self.tray.setIcon(self._tray_icon)
+
+    def _on_toast_clicked(self) -> None:
+        self.stop_blink()
+        self.calendar.open()
 
     def _set_hidden(self, hidden: bool) -> None:
         self.hidden_by_user = hidden
@@ -211,9 +257,10 @@ class CharacterPlanApp:
 
     # ---- 바탕화면 고정 감시 ----
     def _watch(self) -> None:
-        if self.hidden_by_user or self.character.mode == "alert":  # 알림 중엔 맨 위에 있어야 함
+        if self.hidden_by_user:
             return
         desktop.pin_to_desktop(self._hwnd)  # 탐색기 재시작 대비
+        desktop.pin_to_desktop(self._bubble_hwnd)
         desktop.ensure_visible(self._hwnd)
 
     # ---- 말하기 / 알림 ----
@@ -221,13 +268,24 @@ class CharacterPlanApp:
         if self.hidden_by_user:
             return
         self.bubble.say(text, self.character.art_rect(), seconds or BUBBLE_SECONDS, alert=self.character.mode == "alert")
+        self._stack_bubble()
+        QTimer.singleShot(0, self._stack_bubble)  # Qt 가 띄우면서 앞으로 올린 경우 한 번 더
+
+    def _stack_bubble(self) -> None:
+        """말풍선을 캐릭터 바로 아래 층에 둔다 → 다른 프로그램 창 위로 올라오지 않는다."""
+        desktop.pin_to_desktop(self._bubble_hwnd)
+        desktop.stack_under(self._bubble_hwnd, self._hwnd)
 
     def alert(self, text: str) -> None:
         if self.hidden_by_user:
             self.act_hide.setChecked(False)  # 숨겨 둔 상태여도 일정 알림은 보여 준다
         self.today.close()  # 알림 말풍선이 체크리스트에 가리지 않게
         self.character.start_alert()
-        desktop.set_topmost(self._hwnd, True)
+        # 캐릭터·말풍선은 바탕화면 층에 그대로 두고, 창에 가려져도 알 수 있게
+        # 윈도우 알림을 띄우고 작업 표시줄(트레이) 아이콘을 깜빡인다.
+        name = dict(CHARACTERS).get(self.settings.character, APP_TITLE)
+        self.tray.showMessage(f"{name} · 일정 알림", text, self._tray_icon, TOAST_MS)
+        self.start_blink()
         if self.settings.sound_volume > 0:  # 캐릭터 효과음 (파일이 없으면 기본 알림음). 0 이면 조용히
             sound_player().play(self.settings.character, self.settings.sound_volume / 100)
         self.say(text, ALERT_SECONDS)
@@ -235,7 +293,6 @@ class CharacterPlanApp:
     def _end_alert(self) -> None:
         if self.character.mode == "alert":
             self.character.stop_alert()
-            desktop.set_topmost(self._hwnd, False)
 
     def say_sequence(self, texts: list[str]) -> None:
         """말풍선 여러 개를 차례로 (하나가 닫히면 다음)."""
@@ -256,6 +313,8 @@ class CharacterPlanApp:
         """오늘 일정부터 말하고, 이어서 등록된 D-day 를 알려 준다."""
         self.settings.last_briefing = date.today().isoformat()
         self.settings.save()
+        if not self.hidden_by_user and self.settings.sound_volume > 0:  # 브리핑도 캐릭터 효과음으로 알려 준다
+            sound_player().play(self.settings.character, self.settings.sound_volume / 100)
         self.say_sequence(self.notifier.briefing())
 
     def _startup_briefing(self) -> None:
@@ -274,6 +333,7 @@ class CharacterPlanApp:
     def _on_character_clicked(self) -> None:
         """캐릭터 클릭: 오늘 할 일 체크리스트. 열려 있을 때 다시 누르면 닫힌다."""
         self._queue.clear()
+        self.stop_blink()
         self.bubble.dismiss()  # 알림 중이면 알림도 같이 끝남
         if self.today.isVisible():
             self.today.close()

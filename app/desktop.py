@@ -93,6 +93,13 @@ def send_to_bottom(hwnd: int) -> None:
     user32.SetWindowPos(hwnd, HWND_BOTTOM, 0, 0, 0, 0, SWP_NOSIZE | SWP_NOMOVE | SWP_NOACTIVATE)
 
 
+def stack_under(hwnd: int, above: int) -> None:
+    """hwnd 를 above 창 바로 아래에 둔다 (말풍선을 캐릭터와 같은 바탕화면 층에)."""
+    if not IS_WINDOWS or not hwnd or not above:
+        return
+    user32.SetWindowPos(hwnd, wintypes.HWND(above), 0, 0, 0, 0, SWP_NOSIZE | SWP_NOMOVE | SWP_NOACTIVATE)
+
+
 def beep() -> None:
     if IS_WINDOWS:
         user32.MessageBeep(MB_ICONASTERISK)
