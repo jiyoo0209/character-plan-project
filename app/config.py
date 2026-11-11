@@ -124,7 +124,7 @@ class Settings:
     character_size: int = CHARACTER_SIZE  # 캐릭터 높이(px), SIZE_MIN ~ SIZE_MAX
     briefing: str = "startup"  # 하루 브리핑: "startup" = 컴퓨터 켤 때(앱 시작), "time" = 정해진 시간
     briefing_time: str = "08:30"  # briefing == "time" 일 때 HH:MM
-    sound_on: bool = True  # 일정 알림 때 캐릭터 효과음 (assets/sounds/<캐릭터>.mp3)
+    sound_volume: int = 80  # 일정 알림 효과음 크기 0~100 (0 = 조용히). 소리는 assets/sounds/<캐릭터>.mp3
     last_briefing: str = ""  # 마지막으로 브리핑한 날 (YYYY-MM-DD), 정해진 시간 브리핑을 하루 한 번만
     pos_x: int | None = None  # 캐릭터 위치 (None 이면 화면 오른쪽 아래)
     pos_y: int | None = None
@@ -136,6 +136,8 @@ class Settings:
         except (OSError, ValueError):
             return cls()
         known = {f.name for f in fields(cls)}
+        if "sound_volume" not in raw and raw.get("sound_on") is False:  # 예전 '조용히' 설정 이어받기
+            raw["sound_volume"] = 0
         s = cls(**{k: v for k, v in raw.items() if k in known})
         s.lead_minutes = max(0, int(s.lead_minutes))
         if s.character not in {c for c, _ in CHARACTERS}:
@@ -144,6 +146,10 @@ class Settings:
             s.character_size = min(SIZE_MAX, max(SIZE_MIN, int(s.character_size)))
         except (TypeError, ValueError):
             s.character_size = CHARACTER_SIZE
+        try:
+            s.sound_volume = min(100, max(0, int(s.sound_volume)))
+        except (TypeError, ValueError):
+            s.sound_volume = 80
         if s.briefing not in ("startup", "time"):
             s.briefing = "startup"
         return s

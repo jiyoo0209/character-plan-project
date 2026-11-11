@@ -18,7 +18,6 @@ from .config import ASSETS_DIR
 IS_WINDOWS = sys.platform == "win32"
 SOUND_DIR = ASSETS_DIR / "sounds"
 EXTS = (".mp3", ".wav")
-VOLUME = 0.8  # 0.0 ~ 1.0
 ALIAS = "characterplan_sfx"
 
 
@@ -49,16 +48,15 @@ class _MciBackend:
     def _cmd(self, cmd: str) -> int:
         return self._send(cmd, None, 0, None)
 
-    def play(self, path: Path) -> bool:
+    def play(self, path: Path, volume: float) -> bool:
         if self._open:
             self._cmd(f"close {ALIAS}")
             self._open = False
-        kind = "waveaudio" if path.suffix.lower() == ".wav" else "mpegvideo"
-        if self._cmd(f'open "{path}" type {kind} alias {ALIAS}') != 0:
+        # mpegvideo(DirectShow) 는 mp3 · wav 둘 다 열고 소리 크기도 바꿀 수 있다
+        if self._cmd(f'open "{path}" type mpegvideo alias {ALIAS}') != 0:
             return False
         self._open = True
-        if kind == "mpegvideo":
-            self._cmd(f"setaudio {ALIAS} volume to {round(VOLUME * 1000)}")
+        self._cmd(f"setaudio {ALIAS} volume to {round(volume * 1000)}")
         return self._cmd(f"play {ALIAS} from 0") == 0
 
 
@@ -69,12 +67,12 @@ class _QtBackend:
         from PySide6.QtMultimedia import QAudioOutput, QMediaPlayer
 
         self._out = QAudioOutput(parent)
-        self._out.setVolume(VOLUME)
         self._player = QMediaPlayer(parent)
         self._player.setAudioOutput(self._out)
         self._player.errorOccurred.connect(lambda *_: _fallback())  # 못 읽는 파일 / 소리 장치 없음
 
-    def play(self, path: Path) -> bool:
+    def play(self, path: Path, volume: float) -> bool:
+        self._out.setVolume(volume)
         self._player.stop()
         self._player.setSource(QUrl.fromLocalFile(str(path)))
         self._player.play()
@@ -98,14 +96,15 @@ class SoundPlayer(QObject):
                 self._backend = None
         return self._backend
 
-    def play(self, cid: str, fallback: bool = True) -> bool:
-        """cid 캐릭터의 효과음. 파일이 없거나 재생에 실패하면 (fallback 이면) 기본 알림음."""
+    def play(self, cid: str, volume: float = 0.8, fallback: bool = True) -> bool:
+        """cid 캐릭터의 효과음 (volume 0.0 ~ 1.0). 파일이 없거나 재생에 실패하면 (fallback 이면) 기본 알림음."""
+        volume = min(1.0, max(0.0, volume))
         path = sound_file(cid)
         backend = self._ensure() if path else None
         ok = False
         if backend is not None:
             try:
-                ok = backend.play(path)
+                ok = backend.play(path, volume)
             except Exception:
                 ok = False
         if not ok and fallback:

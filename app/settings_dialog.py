@@ -39,6 +39,7 @@ QLineEdit {{
 }}
 QLineEdit:focus {{ border-color: {t.accent}; }}
 QPushButton#primary, QPushButton#ghost {{ padding: 8px 26px; }}
+QPushButton#chip[mini="true"] {{ padding: 3px 12px; font-size: 12px; border-radius: 12px; }}  /* 낮은 버튼은 반지름이 높이의 반을 넘으면 네모로 그려진다 */
 """
 
 
@@ -293,7 +294,38 @@ class SettingsDialog(QDialog):
         size_row.addWidget(self.size, 1)
         size_row.addWidget(big)
         size_row.addSpacing(4)
-        size_row.addWidget(self.size_pill)
+        size_row.addWidget(self._pill_slot(self.size_pill))
+
+        # 알림 소리 크기: 슬라이더 (5% 단위, 0 = 조용히) + 지금 값. 손을 떼면 그 크기로 들려 준다
+        self.volume = QSlider(Qt.Orientation.Horizontal)
+        self.volume.setRange(0, 20)
+        self.volume.setPageStep(2)
+        self.volume.setValue(round(settings.sound_volume / 5))
+        self.volume.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.volume_pill = Pill(theme_for(settings.character))
+        self.volume.valueChanged.connect(self._on_volume_changed)
+        self.volume.sliderReleased.connect(self._preview_sound)
+        self._on_volume_changed(self.volume.value())
+        volume_row = QHBoxLayout()
+        volume_row.setSpacing(10)
+        quiet, loud = QLabel("작게"), QLabel("크게")
+        for lb in (quiet, loud):
+            lb.setObjectName("sizeEnd")
+        volume_row.addWidget(quiet)
+        volume_row.addWidget(self.volume, 1)
+        volume_row.addWidget(loud)
+        volume_row.addSpacing(4)
+        volume_row.addWidget(self._pill_slot(self.volume_pill))
+        self.preview = QPushButton("▶ 들어 보기")
+        self.preview.setObjectName("chip")
+        self.preview.setProperty("mini", True)
+        self.preview.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.preview.clicked.connect(self._preview_sound)
+        volume_head = QHBoxLayout()
+        volume_head.setContentsMargins(0, 0, 0, 0)
+        volume_head.addWidget(self._section("알림 소리는 얼마나 크게 할까?"))
+        volume_head.addStretch(1)
+        volume_head.addWidget(self.preview)
 
         # 이름
         self.name = QLineEdit(settings.user_name)
@@ -337,26 +369,6 @@ class SettingsDialog(QDialog):
         self.brief_mode.idToggled.connect(lambda *_: self.brief_time.setEnabled(self.brief_mode.checkedId() == 1))
         self.brief_time.setEnabled(settings.briefing == "time")
 
-        # 알림 소리: 켜기 / 끄기 + 들어 보기
-        self.sound_mode = QButtonGroup(self)
-        self.sound_mode.setExclusive(True)
-        sound_row = QHBoxLayout()
-        sound_row.setSpacing(6)
-        for i, text in enumerate(("효과음 켜기", "조용히")):
-            chip = QPushButton(text)
-            chip.setObjectName("chip")
-            chip.setCheckable(True)
-            chip.setCursor(Qt.CursorShape.PointingHandCursor)
-            chip.setChecked((i == 0) == bool(settings.sound_on))
-            self.sound_mode.addButton(chip, i)
-            sound_row.addWidget(chip)
-        self.preview = QPushButton("▶ 들어 보기")
-        self.preview.setObjectName("chip")  # 알약 모양 (체크는 안 됨)
-        self.preview.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.preview.clicked.connect(self._preview_sound)
-        sound_row.addWidget(self.preview)
-        sound_row.addStretch(1)
-
         # 버튼
         cancel = QPushButton("취소")
         cancel.setObjectName("ghost")
@@ -389,6 +401,9 @@ class SettingsDialog(QDialog):
         lay.addWidget(self._section("크기는 얼마나 할까?"))
         lay.addLayout(size_row)
         lay.addSpacing(10)
+        lay.addLayout(volume_head)
+        lay.addLayout(volume_row)
+        lay.addSpacing(10)
         lay.addWidget(self._section("뭐라고 불러줄까?"))
         lay.addWidget(self.name)
         lay.addSpacing(10)
@@ -400,9 +415,6 @@ class SettingsDialog(QDialog):
         brief_hint.setObjectName("subtitle")
         lay.addWidget(brief_hint)
         lay.addLayout(brief_row)
-        lay.addSpacing(10)
-        lay.addWidget(self._section("알림 소리"))
-        lay.addLayout(sound_row)
         lay.addSpacing(14)
         lay.addLayout(btn_row)
         self.frame = RoundFrame(self, theme_for(settings.character), title_row=title_row)
@@ -425,14 +437,38 @@ class SettingsDialog(QDialog):
         if not on:
             return
         self.apply_theme(theme_for(card.cid))
-        has = sound_file(card.cid) is not None
-        self.preview.setEnabled(has)
-        self.preview.setToolTip("" if has else f"효과음 파일이 아직 없어 (assets/sounds/{card.cid}.mp3)")
+        self._refresh_preview()
+
+    def _refresh_preview(self) -> None:
+        """들어 보기: 고른 캐릭터의 효과음 파일이 있고 소리가 0 이 아닐 때만."""
+        if not hasattr(self, "preview"):
+            return
+        card = self.cards.checkedButton()
+        has = card is not None and sound_file(card.cid) is not None
+        self.preview.setEnabled(has and self.volume.value() > 0)
+        self.preview.setToolTip("" if has else "이 친구는 아직 효과음이 없어")
+
+    @staticmethod
+    def _pill_slot(pill: QWidget) -> QWidget:
+        """알약을 고정 폭 자리에 오른쪽 맞춤으로 (값이 바뀌어도 슬라이더 길이가 그대로)."""
+        slot = QWidget()
+        slot.setFixedWidth(64)
+        row = QHBoxLayout(slot)
+        row.setContentsMargins(0, 0, 0, 0)
+        row.addStretch(1)
+        row.addWidget(pill)
+        return slot
+
+    def _on_volume_changed(self, v: int) -> None:
+        self.volume_pill.setText(f"{v * 5}%" if v else "조용히")
+        self.volume_pill.set_on(v > 0)
+        self._refresh_preview()
 
     def _preview_sound(self) -> None:
         card = self.cards.checkedButton()
-        if card is not None:
-            sound_player().play(card.cid, fallback=False)
+        v = self.volume.value() * 5
+        if card is not None and v > 0:
+            sound_player().play(card.cid, v / 100, fallback=False)
 
     def apply_theme(self, t: Theme) -> None:
         self.setStyleSheet(build_style(t))
@@ -441,8 +477,9 @@ class SettingsDialog(QDialog):
         for card in self.cards.buttons():
             card.theme = t
             card.update()
-        self.size_pill.theme = t
-        self.size_pill.update()
+        for pill in (self.size_pill, self.volume_pill):
+            pill.theme = t
+            pill.update()
         self.ribbon.setPixmap(self._icon(t.ribbon, 28))
 
     def _icon(self, path: Path, size: int) -> QPixmap:
@@ -468,7 +505,7 @@ class SettingsDialog(QDialog):
         s.character_size = self.size.value() * SIZE_STEP
         s.briefing = "time" if self.brief_mode.checkedId() == 1 else "startup"
         s.briefing_time = self.brief_time.time().toString("HH:mm")
-        s.sound_on = self.sound_mode.checkedId() != 1
+        s.sound_volume = self.volume.value() * 5
         card = self.cards.checkedButton()
         if card is not None and card.available:
             s.character = card.cid

@@ -228,8 +228,8 @@ class CharacterPlanApp:
         self.today.close()  # 알림 말풍선이 체크리스트에 가리지 않게
         self.character.start_alert()
         desktop.set_topmost(self._hwnd, True)
-        if self.settings.sound_on:  # 캐릭터 효과음 (파일이 없으면 기본 알림음)
-            sound_player().play(self.settings.character)
+        if self.settings.sound_volume > 0:  # 캐릭터 효과음 (파일이 없으면 기본 알림음). 0 이면 조용히
+            sound_player().play(self.settings.character, self.settings.sound_volume / 100)
         self.say(text, ALERT_SECONDS)
 
     def _end_alert(self) -> None:
