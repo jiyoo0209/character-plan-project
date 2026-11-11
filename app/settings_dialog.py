@@ -4,7 +4,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from PySide6.QtCore import QEasingCurve, QPointF, QRectF, QSize, Qt, QTime, QVariantAnimation
-from PySide6.QtGui import QColor, QFont, QImageReader, QMovie, QPainter, QPainterPath, QPen, QPixmap
+from PySide6.QtGui import QColor, QFont, QFontMetricsF, QImageReader, QMovie, QPainter, QPainterPath, QPen, QPixmap
 from PySide6.QtWidgets import (
     QAbstractButton, QButtonGroup, QDialog, QHBoxLayout, QLabel, QLineEdit, QPushButton, QSlider, QVBoxLayout, QWidget,
 )
@@ -12,7 +12,7 @@ from PySide6.QtWidgets import (
 from .frame import RoundFrame
 from .config import CHARACTERS, SIZE_MAX, SIZE_MIN, SIZE_STEP, Settings, character_image, pick_image
 from .sound import player as sound_player, sound_file
-from .themes import DEFAULT_THEME, Theme, theme_for
+from .themes import DEFAULT_THEME, FONT_FAMILY, Theme, theme_for
 
 LEAD_CHOICES = (0, 5, 10, 30, 60)  # 미리 알림 선택지(분)
 
@@ -39,7 +39,6 @@ QLineEdit {{
 }}
 QLineEdit:focus {{ border-color: {t.accent}; }}
 QPushButton#primary, QPushButton#ghost {{ padding: 8px 26px; }}
-QPushButton#chip[mini="true"] {{ padding: 3px 12px; font-size: 12px; border-radius: 12px; }}  /* 낮은 버튼은 반지름이 높이의 반을 넘으면 네모로 그려진다 */
 """
 
 
@@ -74,6 +73,58 @@ def _lead_text(m: int) -> str:
     if m % 60 == 0:
         return f"{m // 60}시간 전"
     return f"{m}분 전"
+
+
+def _font(px: int) -> QFont:
+    f = QFont(FONT_FAMILY)
+    f.setPixelSize(px)
+    return f
+
+
+class PlayButton(QAbstractButton):
+    """'▶ 들어 보기' 작은 알약 버튼 (옆의 '60%' 알약과 같은 높이 · 모양)."""
+
+    H = 24
+
+    def __init__(self, text: str, theme: Theme, parent: QWidget | None = None):
+        super().__init__(parent)
+        self.setText(text)
+        self.theme = theme
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+        fm = QFontMetricsF(_font(12))
+        self.setFixedSize(round(fm.horizontalAdvance(text)) + 12 + 8 + 22, self.H)
+
+    def enterEvent(self, e) -> None:
+        self.update()
+        super().enterEvent(e)
+
+    def leaveEvent(self, e) -> None:
+        self.update()
+        super().leaveEvent(e)
+
+    def paintEvent(self, _e) -> None:
+        t = self.theme
+        on = self.isEnabled()
+        hot = on and (self.underMouse() or self.isDown())
+        p = QPainter(self)
+        p.setRenderHint(QPainter.RenderHint.Antialiasing)
+        r = QRectF(self.rect()).adjusted(0.5, 0.5, -0.5, -0.5)
+        p.setPen(QPen(QColor(t.accent if hot else t.line), 1))
+        p.setBrush(QColor(t.accent if hot else (t.card if on else t.bg)))
+        p.drawRoundedRect(r, r.height() / 2, r.height() / 2)
+        fg = QColor(t.on_accent if hot else (t.accent_deep if on else t.subtext))
+        # ▶ (그려서: 글꼴마다 모양이 달라지지 않게)
+        x0, cy = r.left() + 11, r.center().y()
+        tri = QPainterPath(QPointF(x0, cy - 5))
+        tri.lineTo(x0 + 8, cy)
+        tri.lineTo(x0, cy + 5)
+        tri.closeSubpath()
+        p.setPen(Qt.PenStyle.NoPen)
+        p.setBrush(fg)
+        p.drawPath(tri)
+        p.setFont(_font(12))
+        p.setPen(fg)
+        p.drawText(QRectF(x0 + 13, r.top(), r.right() - x0 - 13 - 9, r.height()), Qt.AlignmentFlag.AlignVCenter, self.text())
 
 
 class CharacterCard(QAbstractButton):
@@ -316,16 +367,14 @@ class SettingsDialog(QDialog):
         volume_row.addWidget(loud)
         volume_row.addSpacing(4)
         volume_row.addWidget(self._pill_slot(self.volume_pill))
-        self.preview = QPushButton("▶ 들어 보기")
-        self.preview.setObjectName("chip")
-        self.preview.setProperty("mini", True)
-        self.preview.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.preview = PlayButton("들어 보기", theme_for(settings.character))
         self.preview.clicked.connect(self._preview_sound)
-        volume_head = QHBoxLayout()
+        volume_head = QHBoxLayout()  # 제목 바로 옆에 작게
         volume_head.setContentsMargins(0, 0, 0, 0)
+        volume_head.setSpacing(8)
         volume_head.addWidget(self._section("알림 소리는 얼마나 크게 할까?"))
+        volume_head.addWidget(self.preview, 0, Qt.AlignmentFlag.AlignVCenter)
         volume_head.addStretch(1)
-        volume_head.addWidget(self.preview)
 
         # 이름
         self.name = QLineEdit(settings.user_name)
@@ -477,7 +526,7 @@ class SettingsDialog(QDialog):
         for card in self.cards.buttons():
             card.theme = t
             card.update()
-        for pill in (self.size_pill, self.volume_pill):
+        for pill in (self.size_pill, self.volume_pill, self.preview):
             pill.theme = t
             pill.update()
         self.ribbon.setPixmap(self._icon(t.ribbon, 28))
