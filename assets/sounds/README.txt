@@ -5,4 +5,4 @@
   usagi.mp3      우사기
   kurimanju.mp3  쿠리만쥬
 
-.wav / .ogg / .m4a 도 됩니다. 파일이 없으면 Windows 기본 알림음이 납니다.
+.wav 도 됩니다. 파일이 없으면 Windows 기본 알림음이 납니다.

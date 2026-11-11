@@ -149,7 +149,7 @@ app/config.py            경로, settings.json
 app/desktop.py           Windows 바탕화면 레이어 고정 (Win32 API)
 app/autostart.py         시작 프로그램 등록 (HKCU Run)
 assets/characters/       캐릭터 이미지 (<id>.gif)
-assets/sounds/           캐릭터 효과음 (<id>.mp3, .wav .ogg .m4a 도 됨)
+assets/sounds/           캐릭터 효과음 (<id>.mp3, .wav 도 됨)
 assets/icon.ico          아이콘
 assets/fonts/            폰트 (주아, SIL OFL)
 assets/icons/            작은 아이콘 (테마 색 리본, 카테고리 이모지: Noto Emoji, Apache 2.0)
