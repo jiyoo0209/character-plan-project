@@ -65,6 +65,7 @@ class Rider(QObject):
         self.target = 0  # 올라탄(또는 날아가는) 창
         self.want = 0  # 올라타고 싶은 창 (지금 활성 창)
         self.hold = False  # True: 바탕화면에 머문다 (말풍선으로 말하는 동안)
+        self.return_to = 0  # 말하러 내려오기 전에 타고 있던 창 (말이 끝나면 돌아감)
         self.home: tuple[int, int] | None = None  # 바탕화면 자리 (물리 px, 창 왼쪽 위)
         self.offset = 0.0  # 창 왼쪽 끝 ~ 캐릭터 가운데
         self.motion: Motion | None = None
@@ -158,17 +159,22 @@ class Rider(QObject):
         """말할 일이 생김 → 바탕화면 자리로 내려가서 머문다 (도착하면 landed(True))."""
         self.hold = True
         if self.b is not None and self.target:
+            self.return_to = self.target
             self.go_home()
 
     def release(self) -> None:
-        """말이 끝남 → 다시 지금 쓰고 있는 창 위로 올라갈 수 있다."""
+        """말이 끝남 → 타고 있던 창으로 돌아간다. 그사이 다른 창을 썼다면 그 창으로.
+        (바탕화면 층의 말풍선을 클릭하면 Windows 는 바탕화면을 누른 걸로 치기 때문에 기억해 둔 창을 쓴다)"""
         self.hold = False
+        if self.return_to and self.want in (0, self.return_to):
+            self.want = self.return_to
+        self.return_to = 0
 
     def on_dropped(self) -> None:
         """사용자가 캐릭터를 끌어다 놓음 → 그 자리가 새 집. 다른 창을 활성화하면 다시 올라탄다."""
         if self.b is None:
             return
-        self.want = self.target = 0
+        self.want = self.target = self.return_to = 0
         self.motion = None
         self.walk_goal = None
         self.ch.air = 0
