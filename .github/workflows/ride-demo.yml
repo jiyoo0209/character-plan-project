@@ -98,31 +98,31 @@ jobs:
           Start-Process $exe; Start-Sleep 5
 
           # 2) 메모장 A 를 열면 → 올라탄다, 잠시 뒤 걸어 다닌다
-          $A = OpenNote "memo.txt" 80 200 520 340
+          $NoteA = OpenNote "memo.txt" 80 200 520 340
           Click 340 380; Start-Sleep 6; Shot "01-ride-a"
 
           # 3) 창 A 를 끌어 옮기면 → 따라간다
           for ($i = 0; $i -le 40; $i++) {
-            [W]::MoveWindow($A, 80 + $i * 6, 200 + [int](30 * [math]::Sin($i / 6.0)), 520, 340, $true) | Out-Null
+            [W]::MoveWindow($NoteA, 80 + $i * 6, 200 + [int](30 * [math]::Sin($i / 6.0)), 520, 340, $true) | Out-Null
             Start-Sleep -Milliseconds 40
           }
           Start-Sleep 2; Shot "02-follow"
 
           # 4) 메모장 B 를 열면 → B 로 옮겨 탄다
-          $B = OpenNote "todo.txt" 560 380 400 260
+          $NoteB = OpenNote "todo.txt" 560 380 400 260
           Click 760 520; Start-Sleep 3; Shot "03-jump-b"
 
           # 5) A 를 클릭하면 → 다시 A 로
           Click 420 420; Start-Sleep 3; Shot "04-back-a"
 
           # 6) A 최소화 → 남은 B 로
-          [W]::ShowWindow($A, 6) | Out-Null; Start-Sleep 3; Shot "05-minimize-a"
+          [W]::ShowWindow($NoteA, 6) | Out-Null; Start-Sleep 3; Shot "05-minimize-a"
 
           # 7) B 닫기 → 바탕화면 자리로 떨어진다
-          [W]::PostMessage($B, 0x10, [IntPtr]::Zero, [IntPtr]::Zero) | Out-Null; Start-Sleep 3; Shot "06-close-b"
+          [W]::PostMessage($NoteB, 0x10, [IntPtr]::Zero, [IntPtr]::Zero) | Out-Null; Start-Sleep 3; Shot "06-close-b"
 
           # 8) A 다시 열기 → 올라탄다
-          [W]::ShowWindow($A, 9) | Out-Null; Start-Sleep 3; Shot "07-restore-a"
+          [W]::ShowWindow($NoteA, 9) | Out-Null; Start-Sleep 3; Shot "07-restore-a"
 
           # 9) Win+D → 바탕화면 자리로
           Keys @(0x5B, 0x44); Start-Sleep 4; Shot "08-win-d"

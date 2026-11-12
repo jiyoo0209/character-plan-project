@@ -38,7 +38,8 @@ def is_enabled() -> bool:
 def set_enabled(enabled: bool) -> None:
     if not IS_WINDOWS:
         return
-    with winreg.OpenKey(winreg.HKEY_CURRENT_USER, RUN_KEY, 0, winreg.KEY_SET_VALUE) as key:
+    # Run 키가 없는 PC(새 사용자 계정 등)도 있으므로 없으면 만든다 (OpenKey 는 여기서 오류로 앱이 꺼짐)
+    with winreg.CreateKeyEx(winreg.HKEY_CURRENT_USER, RUN_KEY, 0, winreg.KEY_SET_VALUE) as key:
         if enabled:
             winreg.SetValueEx(key, APP_NAME, 0, winreg.REG_SZ, launch_command())
         else:
