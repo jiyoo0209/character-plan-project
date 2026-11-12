@@ -36,8 +36,20 @@ jobs:
         run: |
           Add-Type -AssemblyName System.Windows.Forms, System.Drawing
           Add-Type @"
-          using System; using System.Runtime.InteropServices;
+          using System; using System.Collections.Generic; using System.Runtime.InteropServices;
           public static class W {
+            public struct RECT { public int L, T, R, B; }
+            public delegate bool EnumProc(IntPtr h, IntPtr l);
+            [DllImport("user32.dll")] public static extern bool EnumWindows(EnumProc f, IntPtr l);
+            [DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(IntPtr h, out uint pid);
+            [DllImport("user32.dll")] public static extern bool IsWindowVisible(IntPtr h);
+            [DllImport("user32.dll")] public static extern bool GetWindowRect(IntPtr h, out RECT r);
+            public static RECT[] ProcRects(uint pid) {
+              var list = new List<RECT>();
+              EnumWindows((h, l) => { uint p; RECT r; GetWindowThreadProcessId(h, out p);
+                if (p == pid && IsWindowVisible(h) && GetWindowRect(h, out r)) list.Add(r); return true; }, IntPtr.Zero);
+              return list.ToArray();
+            }
             [DllImport("user32.dll")] public static extern bool SetCursorPos(int x, int y);
             [DllImport("user32.dll")] public static extern void mouse_event(uint f, uint x, uint y, uint d, UIntPtr e);
             [DllImport("user32.dll")] public static extern void keybd_event(byte vk, byte sc, uint f, UIntPtr e);
@@ -81,51 +93,63 @@ jobs:
           @{ user_name = "지유"; character = "chiikawa"; character_size = 160; sound_volume = 0
              briefing = "startup"; ride_windows = $true; pos_x = $px; pos_y = $py } |
             ConvertTo-Json | Set-Content -Encoding utf8NoBOM "$data\settings.json"
-          $t1 = (Get-Date).AddHours(3)
-          @{ version = 1; schedules = @(@{ title = "회의"; date = $t1.ToString("yyyy-MM-dd"); time = $t1.ToString("HH:mm") }) } |
-            ConvertTo-Json -Depth 5 | Set-Content -Encoding utf8NoBOM "$data\schedules.json"
           Set-Content -Encoding utf8 memo.txt "회의 준비 메모`r`n- 자료 출력하기`r`n- 3층 회의실"
           Set-Content -Encoding utf8 todo.txt "오늘 할 일`r`n- 점심 약속 12:30"
 
           (New-Object -ComObject Shell.Application).MinimizeAll(); Start-Sleep 2
 
+          # 일정 알림 시각 맞추기: 매분 20초에 앱을 켜면, 다음 정각 분 + 10분 일정의
+          # '10분 전 알림'이 앱 실행 약 50초 뒤(15초마다 확인)에 온다.
+          while ((Get-Date).Second -ne 19) { Start-Sleep -Milliseconds 200 }
+          $now = Get-Date
+          $boundary = $now.AddSeconds(60 - $now.Second).AddMilliseconds(-$now.Millisecond)
+          $meet = $boundary.AddMinutes(10)
+          @{ version = 1; schedules = @(@{ title = "회의"; date = $meet.ToString("yyyy-MM-dd"); time = $meet.ToString("HH:mm") }) } |
+            ConvertTo-Json -Depth 5 | Set-Content -Encoding utf8NoBOM "$data\schedules.json"
+
           $ff = Start-Process ffmpeg -PassThru -NoNewWindow -ArgumentList (
-            "-y -loglevel error -f gdigrab -framerate 30 -i desktop -t 50 " +
+            "-y -loglevel error -f gdigrab -framerate 30 -i desktop -t 72 " +
             "-c:v libx264 -preset veryfast -crf 26 -pix_fmt yuv420p shots\ride-demo.mp4")
           Start-Sleep 1
 
-          # 1) 앱 실행: 바탕화면 자리 + 인사
-          Start-Process $exe; Start-Sleep 5
+          # 1) 앱 실행: 바탕화면 자리에서 오늘 일정 브리핑 (말풍선이 보이는지)
+          $app = Start-Process $exe -PassThru; Start-Sleep 4; Shot "01-briefing-home"
+          Start-Sleep 6
 
-          # 2) 메모장 A 를 열면 → 올라탄다, 잠시 뒤 걸어 다닌다
-          $NoteA = OpenNote "memo.txt" 80 200 520 340
-          Click 340 380; Start-Sleep 6; Shot "01-ride-a"
+          # 2) 메모장 A → 올라탄다
+          $NoteA = OpenNote "memo.txt" 40 170 460 280
+          Click 270 330; Start-Sleep 4; Shot "02-ride-a"
 
           # 3) 창 A 를 끌어 옮기면 → 따라간다
-          for ($i = 0; $i -le 40; $i++) {
-            [W]::MoveWindow($NoteA, 80 + $i * 6, 200 + [int](30 * [math]::Sin($i / 6.0)), 520, 340, $true) | Out-Null
+          for ($i = 0; $i -le 30; $i++) {
+            [W]::MoveWindow($NoteA, 40 + $i * 6, 170 - [int](10 * [math]::Sin($i / 5.0)), 460, 280, $true) | Out-Null
             Start-Sleep -Milliseconds 40
           }
-          Start-Sleep 2; Shot "02-follow"
+          Start-Sleep 2
 
-          # 4) 메모장 B 를 열면 → B 로 옮겨 탄다
-          $NoteB = OpenNote "todo.txt" 560 380 400 260
-          Click 760 520; Start-Sleep 3; Shot "03-jump-b"
+          # 4) 메모장 B → 옮겨 탄다, A 클릭 → 다시 A
+          $NoteB = OpenNote "todo.txt" 560 140 360 200
+          Click 760 260; Start-Sleep 3; Shot "03-ride-b"
+          Click 400 380; Start-Sleep 3; Shot "04-ride-a"
 
-          # 5) A 를 클릭하면 → 다시 A 로
-          Click 420 420; Start-Sleep 3; Shot "04-back-a"
+          # 5) 일정 알림이 올 때까지 기다림 (A 위에서 쉬거나 걸어 다니는 중)
+          $deadline = (Get-Date).AddSeconds(80)
+          while ((Get-Date) -lt $deadline) {
+            $j = Get-Content "$data\schedules.json" -Raw | ConvertFrom-Json
+            if ($j.schedules[0].notified_before) { break }
+            Start-Sleep -Milliseconds 200
+          }
+          "alert at +$([int]((Get-Date) - $now).TotalSeconds)s"
+          Start-Sleep -Milliseconds 300; Shot "05-alert-jumping-down"
+          Start-Sleep 3; Shot "06-alert-speaking-home"
+          Start-Sleep 2
 
-          # 6) A 최소화 → 남은 B 로
-          [W]::ShowWindow($NoteA, 6) | Out-Null; Start-Sleep 3; Shot "05-minimize-a"
-
-          # 7) B 닫기 → 바탕화면 자리로 떨어진다
-          [W]::PostMessage($NoteB, 0x10, [IntPtr]::Zero, [IntPtr]::Zero) | Out-Null; Start-Sleep 3; Shot "06-close-b"
-
-          # 8) A 다시 열기 → 올라탄다
-          [W]::ShowWindow($NoteA, 9) | Out-Null; Start-Sleep 3; Shot "07-restore-a"
-
-          # 9) Win+D → 바탕화면 자리로
-          Keys @(0x5B, 0x44); Start-Sleep 4; Shot "08-win-d"
+          # 6) 말풍선 클릭해서 닫기 → 다시 A 위로
+          $rects = [W]::ProcRects([uint32]$app.Id) | Where-Object { ($_.R - $_.L) -lt 600 -and ($_.B - $_.T) -lt 300 } |
+            Sort-Object T
+          "our windows: $($rects | ForEach-Object { "$($_.L),$($_.T),$($_.R),$($_.B)" })"
+          $bub = $rects[0]
+          Click ([int](($bub.L + $bub.R) / 2)) ([int](($bub.T + $bub.B) / 2) - 6); Start-Sleep 3; Shot "07-back-up"
 
           $ff.WaitForExit()
           Get-Item shots\ride-demo.mp4 | Select-Object Name, Length

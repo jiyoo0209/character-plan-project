@@ -133,8 +133,10 @@ class CharacterPlanApp:
             lambda: self.settings.ride_windows and not self.hidden_by_user,
         )
         self.rider.moved.connect(self._on_rider_moved)
-        self.rider.landed.connect(lambda _home: self._stack_bubble())
+        self.rider.landed.connect(self._on_landed)
         self.rider.start()
+        self._pending_say: tuple[str, float | None] | None = None  # 바탕화면에 내려가면 할 말
+        self.bubble.dismissed.connect(lambda: QTimer.singleShot(800, self._maybe_release))
 
         # 일정 알림 때 작업 표시줄(트레이) 아이콘 깜빡이기: 아이콘 ↔ 빈 아이콘
         self._tray_icon = self.tray.icon()
@@ -277,24 +279,42 @@ class CharacterPlanApp:
     def say(self, text: str, seconds: float | None = None) -> None:
         if self.hidden_by_user:
             return
+        # 말풍선은 바탕화면에서만: 창 위에 올라타 있으면 먼저 원래 자리로 내려가서 말한다
+        self.rider.hold_home()
+        if not self.rider.at_home:
+            self._pending_say = (text, seconds)
+            return
         self.bubble.say(text, self.character.art_rect(), seconds or BUBBLE_SECONDS, alert=self.character.mode == "alert")
         self._stack_bubble()
         QTimer.singleShot(0, self._stack_bubble)  # Qt 가 띄우면서 앞으로 올린 경우 한 번 더
 
     def _stack_bubble(self) -> None:
-        """말풍선을 캐릭터 바로 아래 층에 둔다 → 다른 프로그램 창 위로 올라오지 않는다.
-        캐릭터가 창 위에 올라타 있으면 말풍선도 바탕화면에서 떼어 그 창 위에 보이게 한다."""
+        """말풍선과 캐릭터를 바탕화면 층 맨 아래에 둔다 → 다른 프로그램 창 위로 올라오지 않는다.
+        말풍선을 캐릭터 '아래'에 두면 바탕화면 그림 뒤로 숨어 버리는 PC 가 있어서,
+        말풍선을 맨 아래로 보낸 뒤 캐릭터를 그보다 더 아래로 보낸다 (둘 다 바탕화면 그림보다는 위)."""
+        desktop.pin_to_desktop(self._bubble_hwnd)
+        desktop.send_to_bottom(self._bubble_hwnd)
         if self.rider.at_home:
-            desktop.pin_to_desktop(self._bubble_hwnd)
-        else:
-            desktop.unpin(self._bubble_hwnd)
-        desktop.stack_under(self._bubble_hwnd, self._hwnd)
+            desktop.send_to_bottom(self._hwnd)
 
     def _on_rider_moved(self) -> None:
         if self.bubble.isVisible():
             self.bubble.follow(self.character.art_rect())
-            if self.rider.state == "ride":
-                self._stack_bubble()
+
+    def _on_landed(self, home: bool) -> None:
+        if not home:
+            return
+        if self._pending_say is not None:  # 내려왔으니 이제 말한다
+            text, seconds = self._pending_say
+            self._pending_say = None
+            self.say(text, seconds)
+        else:
+            self._stack_bubble()
+
+    def _maybe_release(self) -> None:
+        """말풍선이 다 닫혔으면(이어서 할 말도 없으면) 다시 창 위로 올라가도 된다."""
+        if not self.bubble.isVisible() and not self._queue and self._pending_say is None:
+            self.rider.release()
 
     def alert(self, text: str) -> None:
         if self.hidden_by_user:

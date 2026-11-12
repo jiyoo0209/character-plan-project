@@ -64,6 +64,7 @@ class Rider(QObject):
         self.state = "home"  # home | fly | ride
         self.target = 0  # 올라탄(또는 날아가는) 창
         self.want = 0  # 올라타고 싶은 창 (지금 활성 창)
+        self.hold = False  # True: 바탕화면에 머문다 (말풍선으로 말하는 동안)
         self.home: tuple[int, int] | None = None  # 바탕화면 자리 (물리 px, 창 왼쪽 위)
         self.offset = 0.0  # 창 왼쪽 끝 ~ 캐릭터 가운데
         self.motion: Motion | None = None
@@ -118,7 +119,10 @@ class Rider(QObject):
                     self.want = 0
                     if self.target:
                         self.go_home()
-            if self.want and self.want != self.target and self._rect(self.want):
+            if self.hold:
+                if self.target:
+                    self.go_home()
+            elif self.want and self.want != self.target and self._rect(self.want):
                 self.jump_to(self.want)
         rect = self._rect(self.target)
         if self.target and rect is None:  # 닫힘 / 최소화 / 최대화 / 화면 맨 위로 감
@@ -149,6 +153,16 @@ class Rider(QObject):
             return
         home = self.home
         self._launch(lambda: home, fall=home[1] >= self._pos()[1])
+
+    def hold_home(self) -> None:
+        """말할 일이 생김 → 바탕화면 자리로 내려가서 머문다 (도착하면 landed(True))."""
+        self.hold = True
+        if self.b is not None and self.target:
+            self.go_home()
+
+    def release(self) -> None:
+        """말이 끝남 → 다시 지금 쓰고 있는 창 위로 올라갈 수 있다."""
+        self.hold = False
 
     def on_dropped(self) -> None:
         """사용자가 캐릭터를 끌어다 놓음 → 그 자리가 새 집. 다른 창을 활성화하면 다시 올라탄다."""
