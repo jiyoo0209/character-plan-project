@@ -40,6 +40,9 @@ class CharacterWidget(QWidget):
         self._frames: list[QPixmap] = []  # 애니메이션 프레임 (표시 크기로 미리 축소)
         self._frame_ends: list[int] = []  # 각 프레임이 끝나는 누적 시각(ms)
         self.mode = "idle"  # idle | alert
+        self.air = 0  # 창으로 점프 중: 1 = 오른쪽, -1 = 왼쪽 (window_ride.py)
+        self.walking = False  # 제목 표시줄 위를 걷는 중
+        self.grounded = False  # 창 위에 앉아 있음 → 둥실 떠오르지 않는다
         self._poke_until = 0.0
         self._clock = QElapsedTimer()
         self._clock.start()
@@ -88,6 +91,20 @@ class CharacterWidget(QWidget):
         b = self.body_rect()
         return self._art.translated(b.topLeft())
 
+    def art_height(self) -> int:
+        return self._art.height()
+
+    def art_span(self) -> tuple[int, int]:
+        """캐릭터 창 왼쪽 끝 기준, 그림이 실제로 보이는 가로 범위 (왼쪽, 오른쪽)."""
+        return PAD_SIDE + self._art.x(), PAD_SIDE + self._art.x() + self._art.width()
+
+    def foot_offset(self) -> int:
+        """창 아래쪽 끝에서 그림 발끝까지 비어 있는 높이 (창 위에 앉힐 때 발을 맞추는 데 쓴다)."""
+        return PAD_BOTTOM + self._pix.height() - (self._art.y() + self._art.height())
+
+    def is_pressed(self) -> bool:
+        return self._press is not None
+
     def body_rect(self) -> QRect:
         """화면 좌표 기준 캐릭터 그림 영역 (말풍선 위치 계산용)."""
         g = self.geometry()
@@ -135,16 +152,23 @@ class CharacterWidget(QWidget):
     def _pose(self) -> tuple[float, float, float, float]:
         """(위로 뜨는 높이, 회전 각도, 가로 배율, 세로 배율)"""
         t = self._now()
-        if self.mode == "alert":
+        if self.air:  # 점프 중: 가는 쪽으로 기울고 길쭉하게
+            lift, angle, sx, sy = 0.0, 9.0 * self.air, 0.94, 1.07
+        elif self.mode == "alert":
             period = 0.55
             p = (t % period) / period
             lift = ALERT_LIFT * math.sin(math.pi * p)
             angle = 7 * math.sin(2 * math.pi * t / 0.9)
             land = p < 0.1 or p > 0.9  # 착지할 때 찌그러짐
             sx, sy = (1.08, 0.9) if land else (0.97, 1.04)
+        elif self.walking:  # 걷기: 뒤뚱뒤뚱 좌우로 흔들며 통통
+            ph = t / 0.42
+            lift = 4 * abs(math.sin(math.pi * ph))
+            angle = 5 * math.sin(math.pi * ph)
+            sx = sy = 1.0
         else:
             s = math.sin(2 * math.pi * t / 2.6)  # 숨쉬기
-            lift = 3 + 3 * s
+            lift = 0.0 if self.grounded else 3 + 3 * s
             angle = 0.0
             sx, sy = 1 + 0.015 * s, 1 - 0.015 * s
 
@@ -261,6 +285,18 @@ class SpeechBubble(QWidget):
         fm = self.label.fontMetrics()
         longest = max(fm.horizontalAdvance(line) for line in text.splitlines() or [""])
         self.label.setFixedWidth(min(self.MAX_TEXT_W, longest + 6))
+        self._place(anchor)
+        self.show()
+        self.update()
+        self._hide_timer.start(int(seconds * 1000))
+
+    def follow(self, anchor: QRect) -> None:
+        """캐릭터가 움직였을 때 말풍선도 따라간다 (글자·남은 시간은 그대로)."""
+        if self.isVisible():
+            self._place(anchor)
+            self.update()
+
+    def _place(self, anchor: QRect) -> None:
         screen = QGuiApplication.screenAt(anchor.center()) or QGuiApplication.primaryScreen()
         area = screen.availableGeometry()
         head = QPoint(anchor.center().x(), anchor.top())
@@ -272,7 +308,7 @@ class SpeechBubble(QWidget):
             if not tail_up:
                 # 꼬리 끝이 머리 위로 살짝 떨어지게. 캐릭터가 떠오르거나 점프해도 말풍선에 닿지 않도록
                 # 움직이는 높이만큼 더 띄운다 (말풍선이 캐릭터를 가리지 않게)
-                clearance = (ALERT_LIFT + 8 if alert else IDLE_LIFT + 4) + self.GAP
+                clearance = (ALERT_LIFT + 8 if self.alert else IDLE_LIFT + 4) + self.GAP
                 y = head.y() - clearance - (self.height() - self.SHADOW)
                 if y >= area.top():
                     break
@@ -285,9 +321,6 @@ class SpeechBubble(QWidget):
         y = max(area.top(), min(y, area.bottom() - self.height()))
         self._tail_x = max(self.RADIUS + 12, min(head.x() - x, self.width() - self.RADIUS - 12))
         self.move(x, y)
-        self.show()
-        self.update()
-        self._hide_timer.start(int(seconds * 1000))
 
     def dismiss(self) -> None:
         self._hide_timer.stop()

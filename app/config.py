@@ -126,6 +126,7 @@ class Settings:
     briefing_time: str = "08:30"  # briefing == "time" 일 때 HH:MM
     sound_volume: int = 80  # 일정 알림 효과음 크기 0~100 (0 = 조용히). 소리는 assets/sounds/<캐릭터>.mp3
     last_briefing: str = ""  # 마지막으로 브리핑한 날 (YYYY-MM-DD), 정해진 시간 브리핑을 하루 한 번만
+    ride_windows: bool = True  # 활성 창 위에 올라타기
     pos_x: int | None = None  # 캐릭터 위치 (None 이면 화면 오른쪽 아래)
     pos_y: int | None = None
 

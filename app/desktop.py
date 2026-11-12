@@ -63,6 +63,14 @@ def pin_to_desktop(hwnd: int) -> bool:
     return True
 
 
+def unpin(hwnd: int) -> None:
+    """바탕화면 레이어에서 뗀다 (활성 창 위에 올라탈 때)."""
+    if not IS_WINDOWS or not hwnd:
+        return
+    if _get_long(hwnd, GWLP_HWNDPARENT) != 0:
+        _set_long(hwnd, GWLP_HWNDPARENT, 0)
+
+
 def ensure_visible(hwnd: int) -> None:
     """바탕화면 보기/최소화 등으로 숨겨졌으면 다시 보이게 한다 (포커스는 뺏지 않음)."""
     if not IS_WINDOWS or not hwnd:

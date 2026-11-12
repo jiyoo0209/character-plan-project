@@ -9,7 +9,7 @@ from PySide6.QtCore import QLockFile, QPoint, Qt, QTimer
 from PySide6.QtGui import QAction, QColor, QFont, QFontDatabase, QGuiApplication, QIcon, QPixmap
 from PySide6.QtWidgets import QApplication, QMenu, QSystemTrayIcon
 
-from . import autostart, desktop
+from . import autostart, desktop, window_ride
 from .calendar_window import CalendarWindow
 from .character import CharacterWidget, SpeechBubble
 from .config import (
@@ -127,6 +127,15 @@ class CharacterPlanApp:
         self._bubble_hwnd = int(self.bubble.winId())
         desktop.pin_to_desktop(self._bubble_hwnd)
 
+        # 활성 창 위에 올라타기
+        self.rider = window_ride.Rider(
+            window_ride.backend_for(self._hwnd), self.character,
+            lambda: self.settings.ride_windows and not self.hidden_by_user,
+        )
+        self.rider.moved.connect(self._on_rider_moved)
+        self.rider.landed.connect(lambda _home: self._stack_bubble())
+        self.rider.start()
+
         # 일정 알림 때 작업 표시줄(트레이) 아이콘 깜빡이기: 아이콘 ↔ 빈 아이콘
         self._tray_icon = self.tray.icon()
         self._blank_icon = QIcon(_blank_pixmap())
@@ -221,7 +230,7 @@ class CharacterPlanApp:
         if hidden:
             self.bubble.dismiss()
             self.today.close()
-        else:
+        elif self.rider.at_home:
             desktop.pin_to_desktop(self._hwnd)
 
     # ---- 위치 ----
@@ -244,11 +253,12 @@ class CharacterPlanApp:
         x = min(max(c.x(), area.left()), area.right() - c.width() + 1)
         y = min(max(c.y(), area.top()), area.bottom() - c.height() + 1)
         c.move(x, y)
-        if self.settings.pos_x is not None:
+        if self.settings.pos_x is not None and self.rider.at_home:  # 창 위에 있을 땐 집 위치를 바꾸지 않음
             self.settings.pos_x, self.settings.pos_y = x, y
             self.settings.save()
 
     def _on_moved(self, pos: QPoint) -> None:
+        self.rider.on_dropped()  # 창 위에서 끌어 내렸으면 바탕화면으로 돌아옴
         self.bubble.dismiss()
         self.today.close()
         self.settings.pos_x, self.settings.pos_y = pos.x(), pos.y()
@@ -257,7 +267,7 @@ class CharacterPlanApp:
 
     # ---- 바탕화면 고정 감시 ----
     def _watch(self) -> None:
-        if self.hidden_by_user:
+        if self.hidden_by_user or not self.rider.at_home:  # 창 위에 올라타 있을 땐 바탕화면에 붙이지 않음
             return
         desktop.pin_to_desktop(self._hwnd)  # 탐색기 재시작 대비
         desktop.pin_to_desktop(self._bubble_hwnd)
@@ -272,9 +282,19 @@ class CharacterPlanApp:
         QTimer.singleShot(0, self._stack_bubble)  # Qt 가 띄우면서 앞으로 올린 경우 한 번 더
 
     def _stack_bubble(self) -> None:
-        """말풍선을 캐릭터 바로 아래 층에 둔다 → 다른 프로그램 창 위로 올라오지 않는다."""
-        desktop.pin_to_desktop(self._bubble_hwnd)
+        """말풍선을 캐릭터 바로 아래 층에 둔다 → 다른 프로그램 창 위로 올라오지 않는다.
+        캐릭터가 창 위에 올라타 있으면 말풍선도 바탕화면에서 떼어 그 창 위에 보이게 한다."""
+        if self.rider.at_home:
+            desktop.pin_to_desktop(self._bubble_hwnd)
+        else:
+            desktop.unpin(self._bubble_hwnd)
         desktop.stack_under(self._bubble_hwnd, self._hwnd)
+
+    def _on_rider_moved(self) -> None:
+        if self.bubble.isVisible():
+            self.bubble.follow(self.character.art_rect())
+            if self.rider.state == "ride":
+                self._stack_bubble()
 
     def alert(self, text: str) -> None:
         if self.hidden_by_user:
