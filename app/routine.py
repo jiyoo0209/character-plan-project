@@ -8,8 +8,8 @@
     1) 잠      자는 시각 ~ 일어나는 시각
                · 내 첫 일정이 일어나는 시각보다 이르면, 그 일정 1시간 전에 일어난다
                · 내 (안 끝낸) 마지막 일정이 자는 시각 뒤에 있으면, 그 일정 1시간 뒤에 잔다
-    2) 밥      밥 시각부터 1시간 (그 사이 내 일정이 시작되면 거기서 끝)
-    3) 내 일정  일정 시각부터 다음 일정 전까지 (밥 먹고 나서도 이어짐)
+    2) 밥      밥 시각부터 1시간 — 내 일정보다 먼저. 일정 중이거나 그 사이 일정이 시작돼도 밥부터 먹는다
+    3) 내 일정  일정 시각부터 다음 일정 전까지 (밥 먹고 나서 이어서 함)
                · 체크리스트에서 체크하면 그때 끝 → 평소 모습
                · '기타' · 카테고리 없는 일정 · 그 카테고리 그림이 없을 때는 평소 모습
     4) 기상    일어나서 30분 (그 사이 내 일정이 시작되면 거기서 끝)
@@ -137,8 +137,8 @@ def current_action(r: Routine | None, plans: list[Plan], now: datetime) -> Actio
     def next_plan_from(m: int) -> int:  # m 이후(같은 분 포함) 처음 시작하는 내 일정 — 같은 분이면 내 일정이 먼저
         return next((p.minute for p in plans if p.minute >= m), sleep)
 
-    for meal in r.meals:
-        if wake <= meal.minute <= t < min(meal.minute + MEAL_MIN, next_plan_from(meal.minute), sleep):
+    for meal in r.meals:  # 밥이 먼저: 내 일정이 있어도 1시간 동안은 밥
+        if wake <= meal.minute <= t < min(meal.minute + MEAL_MIN, sleep):
             return Action((meal.name, "eat*"), meal.label or "밥 먹는 중", f"{now.date()}|{meal.minute}")
 
     started = [p for p in plans if p.minute <= t]
