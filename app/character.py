@@ -360,7 +360,10 @@ class SpeechBubble(QWidget):
         self.move(x, y)
         self.show()
         self.update()
-        self._hide_timer.start(int(seconds * 1000))
+        if seconds > 0:  # 0 이하면 계속 떠 있음 (기상 · 밥 멘트: 그 그림이 끝날 때 앱이 닫는다)
+            self._hide_timer.start(int(seconds * 1000))
+        else:
+            self._hide_timer.stop()
 
     def dismiss(self) -> None:
         self._hide_timer.stop()

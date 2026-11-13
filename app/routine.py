@@ -163,6 +163,23 @@ def current_action(r: Routine | None, plans: list[Plan], now: datetime) -> Actio
     return None
 
 
+def early_wake_plan(r: Routine | None, plans: list[Plan]) -> Plan | None:
+    """첫 일정 때문에 원래보다 일찍 일어났으면 그 일정."""
+    if r is None or not plans:
+        return None
+    wake, _ = day_bounds(r, plans)
+    return plans[0] if wake < r.wakeup else None
+
+
+def current_meal(r: Routine | None, plans: list[Plan], now: datetime) -> Meal | None:
+    """지금 밥 먹는 중이면 그 끼니."""
+    act = current_action(r, plans, now)
+    if act is None or act.images[-1] != "eat*":
+        return None
+    t = now.hour * 60 + now.minute
+    return next((m for m in reversed(r.meals) if m.minute <= t), None)
+
+
 def meal_break(r: Routine | None, plans: list[Plan], now: datetime) -> tuple[Meal, Plan] | None:
     """일정 하던 중에 막 밥 시간이 됐으면 (그 밥, 하던 일정). 말풍선 한마디용."""
     if r is None:

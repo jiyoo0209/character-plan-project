@@ -25,9 +25,10 @@ from .config import (
     character_path,
     is_frozen,
 )
-from .messages import hello_message, meal_message, update_check_message
+from .messages import hello_message, meal_message, update_check_message, wake_message
 from .notifier import Notifier
-from .routine import action_image, current_action, load_routine, meal_break, plans_from
+from .routine import (action_image, current_action, current_meal, early_wake_plan, load_routine, meal_break,
+                      plans_from)
 from .settings_dialog import SettingsDialog
 from .sound import player as sound_player
 from .themes import menu_style, theme_for
@@ -85,8 +86,9 @@ class CharacterPlanApp:
 
         self._routine = load_routine(self.settings.character)  # 캐릭터의 기상 · 잠 · 밥 (나머지는 내 일정대로)
         self._shown_image = self._routine_image()
-        self._meal_said: set[str] = set()  # 이미 한마디 한 끼니 ('날짜|분')
-        self._mark_meal_said()  # 켜자마자 밥 중이면 그 끼니는 말하지 않는다
+        self._state_said: set[str] = set()  # 이미 말한 기상 · 밥 멘트 ('날짜|wake', '날짜|meal|분')
+        self._state_shown: tuple[str, str] | None = None  # 지금 떠 있는 기상 · 밥 멘트 (키, 글)
+        self._mark_state_said()
         self.character = CharacterWidget(self._shown_image, self.settings.character_size)
         self.bubble = SpeechBubble(theme_for(self.settings.character))
         self.calendar = CalendarWindow(self.store, theme_for(self.settings.character))
@@ -278,7 +280,8 @@ class CharacterPlanApp:
     def say(self, text: str, seconds: float | None = None) -> None:
         if self.hidden_by_user:
             return
-        self.bubble.say(text, self.character.art_rect(), seconds or BUBBLE_SECONDS, alert=self.character.mode == "alert")
+        secs = BUBBLE_SECONDS if seconds is None else seconds  # 0 이하 = 계속 떠 있음
+        self.bubble.say(text, self.character.art_rect(), secs, alert=self.character.mode == "alert")
         self._stack_bubble()
         QTimer.singleShot(0, self._stack_bubble)  # Qt 가 띄우면서 앞으로 올린 경우 한 번 더
 
@@ -425,29 +428,76 @@ class CharacterPlanApp:
         if img != self._shown_image:
             self._shown_image = img
             self.character.change_image(img, self.settings.character_size)
-        self._maybe_say_meal()
+        self._update_state_bubble()
 
-    def _meal_break_now(self):
+    # ---- 기상 · 밥 멘트: 그 그림인 동안 말풍선이 계속 떠 있다 ----
+    def _state_now(self) -> tuple[str, object] | None:
+        """지금 떠 있어야 할 멘트 (키, 만들 재료). 키는 하루에 한 번씩만 말하려고 쓴다."""
         now = datetime.now()
-        mb = meal_break(self._routine, plans_from(self.store.on_date(now.date())), now)
-        return (mb, f"{now.date()}|{mb[0].minute}") if mb else (None, "")
+        plans = plans_from(self.store.on_date(now.date()))
+        act = current_action(self._routine, plans, now)
+        if act is None:
+            return None
+        if act.images[0] == "wakeup":
+            return f"{now.date()}|wake", ("wake", early_wake_plan(self._routine, plans))
+        meal = current_meal(self._routine, plans, now)
+        if meal is not None:
+            key = f"{now.date()}|meal|{meal.minute}"
+            mb = meal_break(self._routine, plans, now)  # 일정 하던 중에 막 밥 시간이 됐을 때만 새로 말한다
+            if mb:
+                return key, ("meal", mb)
+            if self._state_shown and self._state_shown[0] == key:  # 이미 띄운 밥 멘트는 다 먹을 때까지 유지
+                return key, None
+        return None
 
-    def _mark_meal_said(self) -> None:
-        _, key = self._meal_break_now()
-        if key:
-            self._meal_said.add(key)
+    def _mark_state_said(self) -> None:
+        """켜자마자 밥 시간 중이면 그 끼니는 말하지 않는다 (기상은 켤 때도 말한다)."""
+        st = self._state_now()
+        if st and "|meal|" in st[0]:
+            self._state_said.add(st[0])
 
-    def _maybe_say_meal(self) -> None:
-        """일정 하던 중에 밥 시간이 되면 캐릭터 말투로 한마디 (소리 없이 말풍선만, 끼니마다 한 번)."""
-        mb, key = self._meal_break_now()
-        if not mb or key in self._meal_said:
+    def _state_text(self, what) -> str:
+        kind, data = what
+        name, cid = self.settings.user_name, self.settings.character
+        if kind == "wake":
+            early = (data.title, data.minute // 60, data.minute % 60) if data else None
+            return wake_message(name, cid, early)
+        meal, plan = data
+        return meal_message(name, meal.say, plan.title, cid)
+
+    def _state_visible(self) -> bool:
+        return bool(self._state_shown) and self.bubble.isVisible() and self.bubble.label.text() == self._state_shown[1]
+
+    def _update_state_bubble(self) -> None:
+        st = self._state_now()
+        key = st[0] if st else None
+        if self._state_shown and self._state_shown[0] != key:  # 기상 · 밥이 끝남 → 그 멘트를 닫는다
+            if self._state_visible():
+                self.bubble.dismiss()
+            self._state_shown = None
+        if self._state_shown and not self._state_visible():  # 눌러서 닫았거나 알림이 덮음 → 다시 띄우지 않음
+            self._state_shown = None
+        if st is None or st[1] is None or key in self._state_said or self.hidden_by_user:
             return
-        self._meal_said.add(key)
-        if self.character.mode == "alert":  # 일정 알림 중이면 그쪽이 먼저
+        if self.character.mode == "alert":  # 일정 알림이 먼저, 이 멘트는 건너뜀
+            self._state_said.add(key)
             return
-        meal, plan = mb
-        text = meal_message(self.settings.user_name, meal.say, plan.title, self.settings.character)
-        QTimer.singleShot(1200, lambda: self.say(text))  # 밥 그림으로 바뀐 뒤에 (머리 위치가 새 그림 기준이 되게)
+        if self.bubble.isVisible() or self._queue:  # 인사 · 브리핑 중이면 끝나고 나서
+            return
+        self._state_said.add(key)
+        text = self._state_text(st[1])
+
+        def show():
+            st_now = self._state_now()
+            if not st_now or st_now[0] != key:
+                return  # 그새 끝남
+            if self.bubble.isVisible() or self._queue or self.character.mode == "alert":
+                self._state_said.discard(key)  # 그새 다른 말풍선이 떴음 → 다음 확인 때 다시
+                return
+            self.say(text, 0)  # 0 = 계속 떠 있음
+            self._state_shown = (key, text)
+
+        QTimer.singleShot(1200, show)  # 그림이 바뀐 뒤에 (머리 위치가 새 그림 기준이 되게)
 
     # ---- 설정 ----
     def open_settings(self, first_run: bool = False) -> None:
@@ -460,7 +510,7 @@ class CharacterPlanApp:
                 self.settings.save()  # 첫 실행에서 취소해도 다음엔 묻지 않도록
             self._routine = load_routine(self.settings.character)
             self._shown_image = self._routine_image()
-            self._mark_meal_said()
+            self._mark_state_said()
             self.character.set_image(self._shown_image, self.settings.character_size)
             self._keep_on_screen()
             self.apply_theme()

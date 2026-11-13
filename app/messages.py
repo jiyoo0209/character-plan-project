@@ -57,6 +57,10 @@ VOICES: dict[str, dict[str, str]] = {
         "meal_1": "{who}…! 나 배고파서 {meal} 먹을게…!\n{title_eun} 먹고 나서 마저 할게…!",
         "meal_2": "꼬르륵…! {who}, {meal} 시간이야…!\n잠깐만 먹고 올게…!",
         "meal_3": "와…! 밥이다…! {you_do} {meal} 꼭 챙겨 먹어…!",
+        # 잠에서 깼을 때 (기상 그림 동안 떠 있음). wake_early = 첫 일정 때문에 일찍 일어났을 때
+        "wake_1": "후아암…! 잘 잤다…! {who}, 좋은 아침…!",
+        "wake_2": "으음… 아직 졸려…! 그래도 일어났어…!",
+        "wake_early": "후아암…! {who}, 오늘 {time}에 {title} 있어서\n일찍 일어났어…!",
     },
     "usagi": {
         "checking": "야하! 새 버전 찾아볼게!",
@@ -73,6 +77,9 @@ VOICES: dict[str, dict[str, str]] = {
         "meal_1": "야하! {who}! 배고파! {meal} 먹을래!\n{title_eun} 이따가! 우라!",
         "meal_2": "하아? {meal} 시간이잖아! 먹자! 야하!",
         "meal_3": "우라! {you_do} {meal} 먹어! 많이!",
+        "wake_1": "야하! 일어났다! {who}! 좋은 아침! 우라!",
+        "wake_2": "하아? 벌써 아침이야? 야하! 가자!",
+        "wake_early": "우라! {who}! {time}에 {title}!\n그래서 일찍 일어났어! 야하!",
     },
     "kurimanju": {
         "checking": "하아— 어디 한번 볼까.",
@@ -89,6 +96,9 @@ VOICES: dict[str, dict[str, str]] = {
         "meal_1": "하아— {who}, 배가 고프구먼.\n{meal}부터 먹고 {title} 마저 하세나.",
         "meal_2": "하아— {meal} 시간이로구먼. 잠깐 쉬어 가지.",
         "meal_3": "하아— {you_do} {meal}{eun} 거르지 말게나.",
+        "wake_1": "하아— 잘 잤구먼. {who}, 좋은 아침일세.",
+        "wake_2": "하아— 아침 해가 좋구먼. 오늘도 느긋하게 가세나.",
+        "wake_early": "하아— {who}, {time}에 {title_iga} 있어서\n일찍 일어났구먼.",
         "meal_dinner": "하아— 저녁엔 한잔 곁들여야지.\n{who}, {title} 잠깐 쉬었다 하세나.",  # 저녁일 때만 하나 더
     },
 }
@@ -107,6 +117,23 @@ def _eun(word: str) -> str:
     """받침 있으면 '은', 없으면 '는' (한글이 아니면 '은(는)')."""
     b = _has_batchim(word.strip()[-1]) if word.strip() else None
     return "은(는)" if b is None else ("은" if b else "는")
+
+
+def _iga(word: str) -> str:
+    """받침 있으면 '이', 없으면 '가' (한글이 아니면 '이(가)')."""
+    b = _has_batchim(word.strip()[-1]) if word.strip() else None
+    return "이(가)" if b is None else ("이" if b else "가")
+
+
+def wake_message(name: str, cid: str = "chiikawa", early: tuple[str, int, int] | None = None, rng=random) -> str:
+    """잠에서 깼을 때 한마디. early = (첫 일정 제목, 시, 분) — 그 일정 때문에 일찍 일어났을 때."""
+    voice = VOICES.get(cid, VOICES["chiikawa"])
+    if early and "wake_early" in voice:
+        title, hh, mm = early
+        title = title.strip() or "일정"
+        return voice["wake_early"].format(who=call_name(name), time=time_text(hh, mm), title=title,
+                                          title_iga=f"{title}{_iga(title)}")
+    return voice[rng.choice([k for k in ("wake_1", "wake_2") if k in voice])].format(who=call_name(name))
 
 
 def _you_do(name: str) -> str:
