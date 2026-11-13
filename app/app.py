@@ -27,6 +27,7 @@ from .config import (
 )
 from .messages import hello_message, update_check_message
 from .notifier import Notifier
+from .routine import action_image, current_action, load_routine, plans_from
 from .settings_dialog import SettingsDialog
 from .sound import player as sound_player
 from .themes import menu_style, theme_for
@@ -37,6 +38,7 @@ from .version import __version__
 from .storage import ScheduleStore
 
 WATCHDOG_MS = 1500
+ROUTINE_CHECK_MS = 20_000  # 하루 일과: 20초마다 지금 할 활동 확인
 ALERT_SECONDS = 60  # 알림 말풍선은 클릭하거나 이 시간이 지나면 닫힘
 BLINK_MS = 500  # 트레이 아이콘 깜빡이는 간격
 BLINK_MAX_MS = 5 * 60 * 1000  # 안 눌러도 5분 뒤엔 깜빡임을 멈춘다
@@ -81,7 +83,9 @@ class CharacterPlanApp:
         self.notifier = Notifier(self.store, lambda: self.settings)
         self.hidden_by_user = False
 
-        self.character = CharacterWidget(character_path(self.settings.character), self.settings.character_size)
+        self._routine = load_routine(self.settings.character)  # 캐릭터의 기상 · 잠 · 밥 (나머지는 내 일정대로)
+        self._shown_image = self._routine_image()
+        self.character = CharacterWidget(self._shown_image, self.settings.character_size)
         self.bubble = SpeechBubble(theme_for(self.settings.character))
         self.calendar = CalendarWindow(self.store, theme_for(self.settings.character))
         self.today = TodayPopup(self.store, theme_for(self.settings.character))
@@ -142,6 +146,11 @@ class CharacterPlanApp:
         self.watchdog = QTimer()
         self.watchdog.timeout.connect(self._watch)
         self.watchdog.start(WATCHDOG_MS)
+
+        self.routine_timer = QTimer()  # 지금 할 행동이 바뀌었는지 (소리 없이 그림만 서서히 바뀜)
+        self.routine_timer.timeout.connect(self._tick_routine)
+        self.routine_timer.start(ROUTINE_CHECK_MS)
+        self.store.changed.connect(self._tick_routine)  # 일정 추가 · 체크하면 바로 반영
 
         autostart.ensure_enabled()  # 자동 실행은 항상 켜 둔다
         self.notifier.start()
@@ -401,6 +410,20 @@ class CharacterPlanApp:
             return
         QTimer.singleShot(900, self.qapp.quit)  # 설치 파일이 파일을 바꿀 수 있게 앱은 꺼진다
 
+    # ---- 캐릭터의 하루 (내 일정에 맞춰 움직임) ----
+    def _routine_image(self):
+        """지금 할 행동의 그림. 시각표가 없거나 그 그림을 아직 안 넣었으면 기본 그림."""
+        cid = self.settings.character
+        now = datetime.now()
+        act = current_action(self._routine, plans_from(self.store.on_date(now.date())), now)
+        return action_image(cid, act) or character_path(cid)
+
+    def _tick_routine(self) -> None:
+        img = self._routine_image()
+        if img != self._shown_image:
+            self._shown_image = img
+            self.character.change_image(img, self.settings.character_size)
+
     # ---- 설정 ----
     def open_settings(self, first_run: bool = False) -> None:
         dlg = SettingsDialog(None, self.settings, first_run=first_run)
@@ -410,7 +433,9 @@ class CharacterPlanApp:
                 dlg.apply()
             else:
                 self.settings.save()  # 첫 실행에서 취소해도 다음엔 묻지 않도록
-            self.character.set_image(character_path(self.settings.character), self.settings.character_size)
+            self._routine = load_routine(self.settings.character)
+            self._shown_image = self._routine_image()
+            self.character.set_image(self._shown_image, self.settings.character_size)
             self._keep_on_screen()
             self.apply_theme()
 

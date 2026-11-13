@@ -3,10 +3,12 @@ from __future__ import annotations
 
 import bisect
 import math
+import threading
 from pathlib import Path
 
 from PySide6.QtCore import QElapsedTimer, QPoint, QPointF, QRect, QRectF, Qt, QTimer, Signal
-from PySide6.QtGui import QColor, QFont, QGuiApplication, QImageReader, QPainter, QPainterPath, QPen, QPixmap
+from PySide6.QtGui import (QColor, QFont, QGuiApplication, QImage, QImageReader, QPainter, QPainterPath, QPen,
+                           QPixmap)
 from PySide6.QtWidgets import QHBoxLayout, QLabel, QWidget
 
 from .themes import DEFAULT_THEME, FONT_FAMILY, Theme
@@ -18,12 +20,38 @@ PAD_BOTTOM = 4
 IDLE_LIFT = 6  # 숨쉬기로 떠오르는 최대 높이
 ALERT_LIFT = 26  # 알림 점프 최대 높이
 DRAG_THRESHOLD = 4
+FADE_S = 0.9  # 일과 그림이 바뀔 때 서서히 바뀌는 시간
+
+
+def decode_image(image: Path, height: int) -> tuple[list[QImage], list[int]]:
+    """그림 파일을 표시 크기로 줄인 프레임들로 (다른 스레드에서 불러도 됨: QImage 만 다룬다).
+    움직이는 GIF/WebP 면 (프레임들, 각 프레임이 끝나는 누적 시각 ms), 정지 그림이면 ([그림], [])."""
+    reader = QImageReader(str(image))
+    if reader.supportsAnimation() and reader.imageCount() != 1:
+        frames, ends, total = [], [], 0
+        while reader.canRead():
+            img = reader.read()
+            if img.isNull():
+                break
+            delay = reader.nextImageDelay()  # 파일에 적힌 이 프레임의 표시 시간
+            frames.append(img.scaledToHeight(height, Qt.TransformationMode.SmoothTransformation))
+            total += delay if delay > 10 else 100  # 지연 0 인 GIF 는 브라우저처럼 100ms 로
+            ends.append(total)
+        if len(frames) > 1:
+            return frames, ends
+        if frames:
+            return frames[:1], []
+    img = QImage(str(image))
+    if img.isNull():
+        raise FileNotFoundError(image)
+    return [img.scaledToHeight(height, Qt.TransformationMode.SmoothTransformation)], []
 
 
 class CharacterWidget(QWidget):
     clicked = Signal()
     moved = Signal(QPoint)
     menu_requested = Signal(QPoint)
+    _decoded = Signal(int, object)  # (요청 번호, (프레임들, 끝 시각들) 또는 예외) — 불러오기 스레드 → 화면
 
     def __init__(self, image: Path, height: int):
         super().__init__(
@@ -46,6 +74,11 @@ class CharacterWidget(QWidget):
         self._press: QPoint | None = None
         self._press_win: QPoint | None = None
         self._dragging = False
+        self._fade_from: tuple[list[QPixmap], list[int], QPixmap] | None = None  # 바뀌기 전 그림
+        self._fade_start = 0.0
+        self._fade_size: tuple[int, int] | None = None  # 서서히 바뀐 뒤 맞출 창 크기
+        self._req = 0  # 그림 바꾸기 요청 번호 (늦게 온 예전 결과는 버림)
+        self._decoded.connect(self._on_decoded)
 
         self.set_image(image, height)
 
@@ -55,17 +88,55 @@ class CharacterWidget(QWidget):
 
     # ---- 외형 ----
     def set_image(self, image: Path, height: int) -> None:
-        self._frames, self._frame_ends = self._load_frames(image, height)
-        if self._frames:
-            self._pix = self._frames[0]
-        else:
-            src = QPixmap(str(image))
-            if src.isNull():
-                raise FileNotFoundError(image)
-            self._pix = src.scaledToHeight(height, Qt.TransformationMode.SmoothTransformation)
+        """그림을 바로 바꾼다 (처음 켤 때 · 설정을 바꿨을 때)."""
+        self._req += 1  # 불러오던 일과 그림이 있으면 버린다
+        self._fade_from = self._fade_size = None
+        self._apply(*decode_image(image, height))
+        self._resize_keep_foot(*self._size_for(self._pix))
+
+    def change_image(self, image: Path, height: int) -> None:
+        """그림을 서서히 바꾼다 (하루 일과). 큰 GIF 도 멈칫하지 않게 다른 스레드에서 불러온다."""
+        self._req += 1
+        req = self._req
+
+        def work():
+            try:
+                result = decode_image(image, height)
+            except Exception as e:  # 못 읽는 파일: 지금 그림 그대로
+                result = e
+            self._decoded.emit(req, result)
+
+        threading.Thread(target=work, daemon=True).start()
+
+    def _on_decoded(self, req: int, result) -> None:
+        if req != self._req or isinstance(result, Exception):
+            return
+        if self.isVisible():  # 지금 보이는 모습에서 새 그림으로 서서히
+            self._fade_from = (self._frames, self._frame_ends, self._current_pixmap())
+            self._fade_start = self._now()
+        old_w, old_h = self.width(), self.height()
+        self._apply(*result)
+        w, h = self._size_for(self._pix)
+        if self._fade_from is not None:  # 바뀌는 동안은 둘 다 들어가게 크게, 끝나면 새 그림 크기로
+            self._fade_size = (w, h)
+            w, h = max(w, old_w), max(h, old_h)
+        self._resize_keep_foot(w, h)
+
+    def _apply(self, images: list[QImage], ends: list[int]) -> None:
+        pixes = [QPixmap.fromImage(img) for img in images]
+        self._pix = pixes[0]
+        self._frames, self._frame_ends = (pixes, ends) if ends else ([], [])
         self._art = self._opaque_rect(self._pix)
+
+    @staticmethod
+    def _size_for(pix: QPixmap) -> tuple[int, int]:
+        return pix.width() + PAD_SIDE * 2, pix.height() + PAD_TOP + PAD_BOTTOM
+
+    def _resize_keep_foot(self, w: int, h: int) -> None:
+        if (w, h) == (self.width(), self.height()):
+            return
         old_bottom_center = self.geometry().center().x(), self.geometry().bottom()
-        self.setFixedSize(self._pix.width() + PAD_SIDE * 2, self._pix.height() + PAD_TOP + PAD_BOTTOM)
+        self.setFixedSize(w, h)
         if self.isVisible():  # 크기가 바뀌어도 발 위치는 유지
             self.move(old_bottom_center[0] - self.width() // 2, old_bottom_center[1] - self.height() + 1)
 
@@ -89,35 +160,19 @@ class CharacterWidget(QWidget):
         return self._art.translated(b.topLeft())
 
     def body_rect(self) -> QRect:
-        """화면 좌표 기준 캐릭터 그림 영역 (말풍선 위치 계산용)."""
+        """화면 좌표 기준 캐릭터 그림 영역 (말풍선 위치 계산용). 그림은 발 아래 가운데 기준으로 그린다."""
         g = self.geometry()
-        return QRect(g.x() + PAD_SIDE, g.y() + PAD_TOP, self._pix.width(), self._pix.height())
+        w, h = self._pix.width(), self._pix.height()
+        return QRect(g.x() + (g.width() - w) // 2, g.y() + g.height() - PAD_BOTTOM - h, w, h)
 
-    @staticmethod
-    def _load_frames(image: Path, height: int) -> tuple[list[QPixmap], list[int]]:
-        """움직이는 GIF/WebP 면 모든 프레임을 표시 크기로 줄여 담는다.
-        원본 해상도 프레임을 계속 들고 있지 않으므로 큰 GIF 도 메모리를 적게 쓴다."""
-        reader = QImageReader(str(image))
-        if not reader.supportsAnimation() or reader.imageCount() == 1:
-            return [], []
-        frames, ends, total = [], [], 0
-        while reader.canRead():
-            img = reader.read()
-            if img.isNull():
-                break
-            delay = reader.nextImageDelay()  # 파일에 적힌 이 프레임의 표시 시간
-            frames.append(
-                QPixmap.fromImage(img).scaledToHeight(height, Qt.TransformationMode.SmoothTransformation)
-            )
-            total += delay if delay > 10 else 100  # 지연 0 인 GIF 는 브라우저처럼 100ms 로
-            ends.append(total)
-        return (frames, ends) if len(frames) > 1 else ([], [])
+    def _frame_at(self, frames: list[QPixmap], ends: list[int], still: QPixmap) -> QPixmap:
+        if not frames:
+            return still
+        t = self._clock.elapsed() % ends[-1]
+        return frames[bisect.bisect_right(ends, t)]
 
     def _current_pixmap(self) -> QPixmap:
-        if not self._frames:
-            return self._pix
-        t = self._clock.elapsed() % self._frame_ends[-1]
-        return self._frames[bisect.bisect_right(self._frame_ends, t)]
+        return self._frame_at(self._frames, self._frame_ends, self._pix)
 
     # ---- 동작 ----
     def start_alert(self) -> None:
@@ -164,6 +219,24 @@ class CharacterWidget(QWidget):
         p.rotate(angle)
         p.scale(sx, sy)
         pix = self._current_pixmap()
+        k = 1.0
+        if self._fade_from is not None:
+            k = (self._now() - self._fade_start) / FADE_S
+            if k >= 1:
+                k = 1.0
+                self._fade_from = None
+                if self._fade_size:
+                    QTimer.singleShot(0, lambda size=self._fade_size: self._resize_keep_foot(*size))
+                    self._fade_size = None
+            else:
+                k = k * k * (3 - 2 * k)  # 부드럽게 (smoothstep)
+                frames, ends, still = self._fade_from
+                old = self._frame_at(frames, ends, still) if frames else still
+                # 둘 다 반투명해서 비쳐 보이는 순간이 짧게: 예전 그림은 뒤 절반에, 새 그림은 앞 절반에 몰아서
+                p.setOpacity(min(1.0, 2 * (1 - k)))
+                p.drawPixmap(QPointF(-old.width() / 2, -old.height()), old)
+                k = min(1.0, 2 * k)
+        p.setOpacity(k)
         p.drawPixmap(QPointF(-pix.width() / 2, -pix.height()), pix)
         p.end()
 
