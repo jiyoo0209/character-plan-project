@@ -42,12 +42,14 @@ from PySide6.QtWidgets import (
 
 from .categories import CATEGORIES, category_icon
 from .config import APP_TITLE, empty_image
-from .messages import dday_text
+from .messages import dday_text, nights_text, range_day_text, range_text
 from .messages import time_text
 from .recurrence import DAY_NAMES, KINDS, KIND_LABEL, RepeatRule, occurrences, count as repeat_count, monthly_day_text, monthly_nth_text, rule_text
 from .storage import ScheduleStore
 from .frame import SHADOW, RoundFrame
 from .themes import DEFAULT_THEME, FONT_FAMILY, SATURDAY, SUNDAY, Theme, common_style
+
+TRAVEL = "여행"  # 이 카테고리는 시간 대신 기간(시작 ~ 끝나는 날)으로 등록한다
 
 WEEKDAYS = "월화수목금토일"  # date.weekday() 순서
 WEEK_HEADER = "일월화수목금토"  # 달력 위 요일 (일요일부터)
@@ -95,6 +97,7 @@ QDialog {{ background: transparent; }}  /* 둥근 판은 RoundFrame 이 그린�
 QLabel {{ color: {t.text}; }}
 QLabel#title {{ font-size: 20px; color: {t.accent_deep}; }}
 QLabel#section {{ font-size: 13px; color: {t.text}; }}
+QLabel#tilde {{ font-size: 16px; color: {t.subtext}; }}
 QLabel#message {{ font-size: 17px; color: {t.text}; }}
 QLabel#sub {{ font-size: 12px; color: {t.subtext}; }}
 QLineEdit, QPlainTextEdit {{
@@ -162,6 +165,7 @@ QPushButton#cat {{
 }}
 QPushButton#cat:hover {{ border-color: {t.accent}; }}
 QPushButton#cat:checked {{ background: {t.soft}; border-color: {t.accent}; color: {t.accent_deep}; }}
+QPushButton#cat:disabled {{ background: {t.bg}; color: {t.line}; border: 2px dashed {t.line}; }}
 QPushButton#primary, QPushButton#ghost {{ padding: 8px 24px; }}
 """
 
@@ -314,6 +318,7 @@ class CategoryPicker(QWidget):
     """카테고리 알약 버튼들. 하나만 고르고, 고른 걸 한 번 더 누르면 해제."""
 
     COLS = 4
+    changed = Signal(str)  # 고른 카테고리 (해제하면 '')
 
     def __init__(self, theme: Theme, current: str = "", parent: QWidget | None = None):
         super().__init__(parent)
@@ -339,9 +344,21 @@ class CategoryPicker(QWidget):
             for n, b in self.buttons.items():
                 if n != name:
                     b.setChecked(False)
+        self.changed.emit(self.value())
 
     def value(self) -> str:
         return next((n for n, b in self.buttons.items() if b.isChecked()), "")
+
+    def set_disabled(self, name: str, off: bool) -> None:
+        """카테고리 하나를 못 고르게 (골라져 있었으면 선택도 풀린다)."""
+        b = self.buttons.get(name)
+        if b is None:
+            return
+        if off and b.isChecked():
+            b.setChecked(False)
+            self.changed.emit("")
+        b.setEnabled(not off)
+        b.setToolTip("반복 일정은 여행으로 등록할 수 없어" if off else "")
 
 
 def place_popup(pop: QWidget, field: QWidget, align_right: bool = False) -> None:
@@ -686,18 +703,35 @@ class ScheduleDialog(QDialog):
         self.title.setPlaceholderText("예: 회의")
         self.title.textChanged.connect(lambda _t: set_flag(self.title, "invalid", False))
         self.date = DateField(day)
-        self.time = TimeField(QTime.fromString(item.time, "HH:mm") if editing else QTime(10, 0), self.theme)
+        # 기간 일정(여행)은 시간이 '00:00' 으로 저장돼 있으니, 다른 카테고리로 바꿀 때는 기본 시간으로
+        use_time = editing and not getattr(item, "is_range", False)
+        self.time = TimeField(QTime.fromString(item.time, "HH:mm") if use_time else QTime(10, 0), self.theme)
         self.category = CategoryPicker(self.theme, item.category if editing else "")
         self.memo = QPlainTextEdit(item.memo if editing else "")
         self.memo.setPlaceholderText("메모 (안 적어도 돼)")
         self.memo.setFixedHeight(80)
         self.time.changed.connect(lambda: self._update_repeat())
 
+        # 여행: 시간 대신 끝나는 날 (시작 날짜는 고정, 끝나는 날은 시작 날짜부터 고를 수 있음)
+        old_end = item.end_day if (editing and getattr(item, "is_range", False)) else None
+        self.end = DatePickField(old_end or day, self.theme, day, "끝나는 날")
+        self.end.changed.connect(self._update_travel)
+        self.tilde = QLabel("~")
+        self.tilde.setObjectName("tilde")
         when = QHBoxLayout()
         when.setSpacing(8)
         when.addWidget(self.date, 3)
         when.addWidget(self.time, 2)
+        when.addWidget(self.tilde)
+        when.addWidget(self.end, 3)
         self.when_label = self._section("언제?")
+        self.nights = Pill(self.theme)  # '2박 3일'
+        when_head = QHBoxLayout()
+        when_head.setSpacing(8)
+        when_head.addWidget(self.when_label)
+        when_head.addStretch(1)
+        when_head.addWidget(self.nights, 0, Qt.AlignmentFlag.AlignVCenter)
+        self.category.changed.connect(lambda _c: self._update_travel())
 
         # ---- 반복 설정 ----
         self.repeat_box = QWidget()
@@ -823,16 +857,16 @@ class ScheduleDialog(QDialog):
         lay.addWidget(self._section("무슨 일정이야?"))
         lay.addWidget(self.title)
         lay.addSpacing(8)
-        lay.addWidget(self.when_label)
+        lay.addWidget(self._section("카테고리"))
+        lay.addWidget(self.category)
+        lay.addSpacing(8)
+        lay.addLayout(when_head)
         lay.addLayout(when)
         lay.addSpacing(8)
         lay.addWidget(self.repeat_box)
         self.repeat_gap = QWidget()
         self.repeat_gap.setFixedHeight(8)
         lay.addWidget(self.repeat_gap)
-        lay.addWidget(self._section("카테고리"))
-        lay.addWidget(self.category)
-        lay.addSpacing(8)
         lay.addWidget(self.memo_box)
         lay.addSpacing(8)
         lay.addWidget(self.dday_box)
@@ -874,13 +908,35 @@ class ScheduleDialog(QDialog):
         weekdays = tuple(sorted(w for w, b in self.day_buttons.items() if b.isChecked()))
         return RepeatRule(self._kind(), until, weekdays, self.month_mode.checkedId() == 1)
 
+    def is_travel(self) -> bool:
+        """여행 카테고리 + 단일 일정이면 시간 대신 '며칠부터 며칠까지'로 받는다."""
+        return self.category.value() == TRAVEL and not self.is_repeat()
+
     def _update_mode(self) -> None:
         rep_on = self.is_repeat()
         self.repeat_box.setVisible(rep_on)
         self.repeat_gap.setVisible(rep_on)
         self.memo_box.setVisible(not rep_on)  # 반복 일정은 메모 없이
-        self.when_label.setText("시작 날짜 · 시간" if rep_on else "언제?")
+        self._update_travel(adjust=False)
         self._update_repeat()
+
+    def _update_travel(self, adjust: bool = True) -> None:
+        travel = self.is_travel()
+        self.time.setVisible(not travel)
+        self.tilde.setVisible(travel)
+        self.end.setVisible(travel)
+        self.nights.setVisible(travel)
+        # 반복 일정에서는 여행(기간 일정)을 고를 수 없다
+        self.category.set_disabled(TRAVEL, self.is_repeat())
+        if travel:
+            end = self.end.date() or self.start
+            self.when_label.setText("언제부터 언제까지?")
+            self.nights.setText(nights_text((end - self.start).days + 1))
+            self.nights.set_on(True)
+        else:
+            self.when_label.setText("시작 날짜 · 시간" if self.is_repeat() else "언제?")
+        if adjust:
+            self.adjustSize()
 
     def _update_repeat(self) -> None:
         kind = self._kind()
@@ -955,12 +1011,16 @@ class ScheduleDialog(QDialog):
                 return
         self.accept()
 
+    def end_value(self) -> date | None:
+        """여행(기간 일정)이면 끝나는 날, 아니면 None."""
+        return (self.end.date() or self.start) if self.is_travel() else None
+
     def values(self) -> tuple[str, date, str, str, str, RepeatRule | None]:
-        """(제목, 날짜, HH:MM, 메모, 카테고리, 반복 규칙 또는 None)"""
+        """(제목, 날짜, HH:MM, 메모, 카테고리, 반복 규칙 또는 None). 여행이면 시간은 '00:00'."""
         return (
             self.title.text().strip(),
             self.date.date(),
-            self.time.time().toString("HH:mm"),
+            "00:00" if self.is_travel() else self.time.time().toString("HH:mm"),
             self.memo.toPlainText().strip(),
             self.category.value(),
             self._rule() if self.is_repeat() else None,
@@ -1110,6 +1170,7 @@ class MonthCalendar(QWidget):
         self.mark_provider: Callable[[date, date], set[date]] | None = None  # 보이는 기간의 일정 있는 날
         self.min_date: QDate | None = None  # 이보다 앞 날짜는 못 고름 (종료일 고르기)
         self.star_provider: Callable[[date, date], set[date]] | None = None  # D-day 날짜 (숫자 옆 별)
+        self.range_provider: Callable[[date, date], set[date]] | None = None  # 여행 기간 (날짜 뒤 띠)
         self._hover: object = None  # QDate 또는 "prev"/"next"/"today"
         self.setMouseTracking(True)
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
@@ -1235,7 +1296,35 @@ class MonthCalendar(QWidget):
         stars = set()
         if self.star_provider is not None:
             stars = {QDate(x.year, x.month, x.day) for x in self.star_provider(f0, f0 + timedelta(days=41))}
+        ranges = set()
+        if self.range_provider is not None:
+            ranges = {QDate(x.year, x.month, x.day) for x in self.range_provider(f0, f0 + timedelta(days=41))}
         rad = self._radius()
+        # 여행 기간: 날짜 뒤에 이어지는 연한 띠 (주가 바뀌면 끊어서 다음 줄에서 이어짐)
+        band = QColor(t.accent)
+        bg = QColor(t.bg)
+        band = QColor(round(bg.red() * 0.72 + band.red() * 0.28), round(bg.green() * 0.72 + band.green() * 0.28),
+                      round(bg.blue() * 0.72 + band.blue() * 0.28))
+        for row in range(6):  # 한 주(줄)에서 이어진 날들을 한 덩어리 띠로 그린다 (칸 사이 이음새 없이)
+            col = 0
+            while col < 7:
+                if first.addDays(row * 7 + col) not in ranges:
+                    col += 1
+                    continue
+                c0 = col
+                while col + 1 < 7 and first.addDays(row * 7 + col + 1) in ranges:
+                    col += 1
+                a_, b_ = self._cell(row * 7 + c0), self._cell(row * 7 + col)
+                cy = a_.center().y() - 1
+                h = 2 * rad - 6
+                rect = QRectF(a_.center().x() - rad + 1, cy - h / 2, b_.center().x() - a_.center().x() + 2 * rad - 2, h)
+                in_month = first.addDays(row * 7 + c0).month() == self._month
+                p.setOpacity(1.0 if in_month else 0.35)
+                p.setPen(Qt.PenStyle.NoPen)
+                p.setBrush(band)
+                p.drawRoundedRect(rect, h / 2, h / 2)
+                col += 1
+        p.setOpacity(1.0)
         p.setFont(_font(14))
         for i in range(42):
             d = first.addDays(i)
@@ -1494,6 +1583,7 @@ class CalendarWindow(QWidget):
         self.calendar = MonthCalendar(theme)
         self.calendar.mark_provider = lambda a, b: self.store.dates_between(a, b)
         self.calendar.star_provider = lambda a, b: self.store.dday_dates_between(a, b, date.today())
+        self.calendar.range_provider = lambda a, b: self.store.range_dates_between(a, b)
         self.calendar.selectionChanged.connect(self.refresh_list)
         self.calendar.activated.connect(lambda _d: self.add())  # 날짜 두 번 클릭 → 바로 추가
 
@@ -1647,9 +1737,14 @@ class CalendarWindow(QWidget):
             hh, mm = map(int, s.time.split(":"))
             it = QListWidgetItem()
             it.setData(ROLE_ID, s.id)
-            it.setData(ROLE_TIME, time_text(hh, mm))
+            memo = s.memo.splitlines()[0] if s.memo else ""
+            if s.is_range:  # 여행: [2일째] 제주 여행 / 11월 20일 ~ 22일 · 2박 3일 · 메모
+                it.setData(ROLE_TIME, range_day_text(s.nth, s.span))
+                memo = range_text(s.s.day, s.end_day) + (f"  ·  {memo}" if memo else "")
+            else:
+                it.setData(ROLE_TIME, time_text(hh, mm))
             it.setData(ROLE_TITLE, s.title)
-            it.setData(ROLE_MEMO, s.memo.splitlines()[0] if s.memo else "")
+            it.setData(ROLE_MEMO, memo)
             it.setData(ROLE_CATEGORY, s.category)
             it.setData(ROLE_REPEAT, rule_text(s.s.day, s.s.rule) if s.is_repeat else "")
             it.setToolTip(s.memo)
@@ -1677,7 +1772,7 @@ class CalendarWindow(QWidget):
         dlg = ScheduleDialog(self, self.selected_day())
         if dlg.exec():
             title, d, t, memo, category, rule = dlg.values()
-            self.store.add(title, d, t, memo, category, rule, dlg.dday_on())
+            self.store.add(title, d, t, memo, category, rule, dlg.dday_on(), dlg.end_value())
             self._select(d)
 
     def edit(self) -> None:
@@ -1687,11 +1782,13 @@ class CalendarWindow(QWidget):
             return
         day = self.selected_day()
         if not item.is_repeat:
-            dlg = ScheduleDialog(self, item.day, item)  # 단일 → 반복으로 바꿀 수도 있음
+            # 여행의 중간 날에서 눌러도 시작 날짜 기준으로 연다 (단일 → 반복으로 바꿀 수도 있음)
+            dlg = ScheduleDialog(self, item.day, item)
             if dlg.exec():
                 title, d, t, memo, category, rule = dlg.values()
-                self.store.update(sid, title, d, t, memo, category, rule, dlg.dday_on())
-                self._select(d)
+                end = dlg.end_value()
+                self.store.update(sid, title, d, t, memo, category, rule, dlg.dday_on(), end)
+                self._select(day if (end and d <= day <= end) else d)  # 보던 날이 기간 안이면 그대로
             return
         scope = ScopeDialog(self, self.theme, item.title, day, "바꾸")
         if not scope.exec():

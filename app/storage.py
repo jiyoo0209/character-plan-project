@@ -35,6 +35,8 @@ class Schedule:
     dday: bool = False  # D-day 로 세기 (단일 일정 / 매년 반복)
     notified: list[str] = field(default_factory=list)  # 반복 일정 알림 기록: 'YYYY-MM-DD|b' (미리), '|a' (정각)
     done: list[str] = field(default_factory=list)  # 체크리스트에서 끝냈다고 체크한 날 'YYYY-MM-DD'
+    # ---- 기간 일정 (여행 등): end 가 있으면 date ~ end 하루 종일, 시간·알림 없음 ----
+    end: str = ""  # 끝나는 날 YYYY-MM-DD (포함)
 
     @property
     def dt(self) -> datetime:
@@ -47,6 +49,20 @@ class Schedule:
     @property
     def is_repeat(self) -> bool:
         return bool(self.repeat)
+
+    @property
+    def is_range(self) -> bool:
+        """며칠짜리 기간 일정 (여행). 시간 대신 끝나는 날이 있다."""
+        return bool(self.end) and not self.repeat
+
+    @property
+    def end_day(self) -> date:
+        return date.fromisoformat(self.end) if self.is_range else self.day
+
+    @property
+    def span(self) -> int:
+        """며칠짜리인지 (당일 = 1)."""
+        return (self.end_day - self.day).days + 1
 
     @property
     def rule(self) -> RepeatRule | None:
@@ -66,7 +82,9 @@ class Schedule:
 
     def occurs_on(self, d: date) -> bool:
         rule = self.rule
-        return d == self.day if rule is None else occurs_on(self.day, rule, d)
+        if rule is None:
+            return self.day <= d <= self.end_day
+        return occurs_on(self.day, rule, d)
 
     def next_on_or_after(self, d: date) -> date | None:
         """d 이후(당일 포함) 첫 번째 날 (D-day 계산용). 지났으면 None."""
@@ -87,8 +105,13 @@ class Occurrence:
     def dt(self) -> datetime:
         return datetime.combine(self.day, datetime.strptime(self.s.time, "%H:%M").time())
 
-    def __getattr__(self, name):  # title, time, memo, category, id, is_repeat …
+    def __getattr__(self, name):  # title, time, memo, category, id, is_repeat, is_range, span …
         return getattr(self.s, name)
+
+    @property
+    def nth(self) -> int:
+        """기간 일정에서 며칠째인지 (첫날 = 1)."""
+        return (self.day - self.s.day).days + 1
 
     @property
     def done(self) -> bool:
@@ -138,6 +161,8 @@ class ScheduleStore(QObject):
             for s in items:
                 s.dt  # 형식 검증
                 s.rule  # 반복 규칙 형식 검증
+                if s.end and (s.repeat or s.end_day < s.day):  # 잘못된 기간은 하루짜리로
+                    s.end = ""
             self._items = items
         except (OSError, ValueError, TypeError, AttributeError):
             # 손상된 파일은 백업해 두고 빈 상태로 시작
@@ -170,10 +195,24 @@ class ScheduleStore(QObject):
         for s in self._items:
             rule = s.rule
             if rule is None:
-                if frm <= s.day <= to:
-                    out.add(s.day)
+                d, last = max(frm, s.day), min(to, s.end_day)
+                while d <= last:  # 기간 일정은 그 기간 모든 날
+                    out.add(d)
+                    d += timedelta(days=1)
             else:
                 out.update(occurrences(s.day, rule, frm, to))
+        return out
+
+    def range_dates_between(self, frm: date, to: date) -> set[date]:
+        """frm~to 사이 기간 일정(여행)에 들어가는 날들 (달력 띠 표시용)."""
+        out: set[date] = set()
+        for s in self._items:
+            if not s.is_range:
+                continue
+            d, last = max(frm, s.day), min(to, s.end_day)
+            while d <= last:
+                out.add(d)
+                d += timedelta(days=1)
         return out
 
     def upcoming_ddays(self, today: date, limit: int | None = None) -> list[tuple[Schedule, date]]:
@@ -202,20 +241,37 @@ class ScheduleStore(QObject):
 
     # ---- 편집 ----
     def add(self, title: str, d: date, time_hhmm: str, memo: str = "", category: str = "",
-            repeat: RepeatRule | None = None, dday: bool = False) -> Schedule:
+            repeat: RepeatRule | None = None, dday: bool = False, end: date | None = None) -> Schedule:
+        """end 를 주면 d ~ end 기간 일정 (시간은 무시, 알림 없음)."""
         s = Schedule(title=title.strip(), date=d.isoformat(), time=time_hhmm, memo=memo.strip(), category=category,
                      dday=dday)
         s.set_rule(repeat)
+        if end is not None and repeat is None:
+            s.time, s.end = "00:00", max(end, d).isoformat()
         self._items.append(s)
         self.save()
         return s
 
     def update(self, sid: str, title: str, d: date, time_hhmm: str, memo: str = "", category: str = "",
-               repeat: RepeatRule | None = None, dday: bool = False) -> None:
-        """일정 하나(반복 일정이면 전체)를 바꾼다. repeat=None 이면 단일 일정이 된다."""
+               repeat: RepeatRule | None = None, dday: bool = False, end: date | None = None) -> None:
+        """일정 하나(반복 일정이면 전체)를 바꾼다. repeat=None 이면 단일 일정이 된다.
+        end 를 주면 기간 일정(여행)이 되고, 안 주면 기간 일정도 하루짜리 시간 일정으로 돌아간다."""
         s = self.get(sid)
         if s is None:
             return
+        was_range = s.is_range
+        if end is not None and repeat is None:
+            new_end = max(end, d).isoformat()
+            s.title, s.date, s.time, s.end, s.memo = title.strip(), d.isoformat(), "00:00", new_end, memo.strip()
+            s.category, s.dday = category, dday
+            s.set_rule(None)
+            s.notified_before = s.notified_on_time = False
+            s.done = [k for k in s.done if s.date <= k <= s.end]  # 기간 밖으로 나간 체크는 정리
+            self.save()
+            return
+        s.end = ""
+        if was_range:
+            s.done = [k for k in s.done if k == d.isoformat()] if repeat is None else []
         if s.date != d.isoformat() or s.time != time_hhmm:
             # 시간이 바뀌면 알림을 다시 받을 수 있게 초기화
             s.notified_before = s.notified_on_time = False

@@ -117,18 +117,40 @@ def today_summary(name: str, titles_times: list[tuple[str, str]]) -> str:
     return f"{call_name(name)}! 오늘 남은 일정이 {n}개 있어.\n첫 번째는 {time_text(hh, mm)} {title}!"
 
 
+def nights_text(days: int) -> str:
+    """기간 일정 길이: 1 → '당일치기', 3 → '2박 3일'."""
+    return "당일치기" if days <= 1 else f"{days - 1}박 {days}일"
+
+
+def range_text(start: date, end: date) -> str:
+    """'11월 20일 ~ 22일 · 2박 3일' (달이 바뀌면 '11월 30일 ~ 12월 2일 · …')."""
+    days = (end - start).days + 1
+    if days <= 1:
+        return f"{start.month}월 {start.day}일 · 당일치기"
+    tail = f"{end.day}일" if (end.year, end.month) == (start.year, start.month) else f"{end.month}월 {end.day}일"
+    return f"{start.month}월 {start.day}일 ~ {tail} · {nights_text(days)}"
+
+
+def range_day_text(nth: int, span: int) -> str:
+    """기간 일정 그날 표시: '1일째' / 마지막 날은 '마지막 날'."""
+    return "마지막 날" if nth == span and span > 1 else f"{nth}일째"
+
+
 def dday_text(days: int) -> str:
     """남은 날 → 'D-3' / 'D-day'."""
     return "D-day" if days <= 0 else f"D-{days}"
 
 
 def briefing_today(name: str, items: list[tuple[str, str]], cid: str = "chiikawa") -> str:
-    """하루 브리핑 ①: 오늘 (남은) 일정. items = [(제목, HH:MM)] 시간 순."""
+    """하루 브리핑 ①: 오늘 (남은) 일정. items = [(제목, HH:MM)] 시간 순. 시간이 '' 이면 기간 일정(여행)."""
     who = call_name(name)
     if not items:
         return _line(cid, "none", who=who)
     lines = [_line(cid, "today", who=who, n=len(items))]
     for title, hhmm in items[:4]:
+        if not hhmm:
+            lines.append(f"· {title}")
+            continue
         hh, mm = map(int, hhmm.split(":"))
         lines.append(f"· {time_text(hh, mm)} {title}")
     if len(items) > 4:

@@ -12,6 +12,7 @@ from PySide6.QtCore import QElapsedTimer, QPoint, QPointF, QRect, QRectF, Qt, Si
 from PySide6.QtGui import QColor, QFont, QFontMetricsF, QGuiApplication, QPainter, QPainterPath, QPen, QPixmap
 from PySide6.QtWidgets import QWidget
 
+from .messages import range_day_text
 from .categories import category_icon
 from .character import IDLE_LIFT
 from .config import ASSETS_DIR
@@ -320,7 +321,7 @@ class TodayPopup(QWidget):
 
             # 시간 알약
             p.setFont(_font(12))
-            time_s = occ.time
+            time_s = range_day_text(occ.nth, occ.span) if occ.is_range else occ.time
             pw = QFontMetricsF(p.font()).horizontalAdvance(time_s) + 16
             pill = QRectF(row.left() + 40, cy - 11, pw, 22)
             p.setPen(Qt.PenStyle.NoPen)

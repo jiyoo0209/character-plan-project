@@ -105,6 +105,8 @@ def plans_from(occurrences) -> list[Plan]:
     """storage.Occurrence 목록 → Plan 목록 (시각 순)."""
     out = []
     for o in occurrences:
+        if getattr(o, "is_range", False):  # 하루 종일 기간 일정(여행)은 시간표에 안 넣는다
+            continue
         try:
             out.append(Plan(_parse_time(o.time), o.category or "", o.title, bool(o.done)))
         except ValueError:

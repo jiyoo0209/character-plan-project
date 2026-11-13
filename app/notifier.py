@@ -39,6 +39,8 @@ class Notifier(QObject):
         today = now.date()
         occs = [o for d in (today - timedelta(days=1), today, today + timedelta(days=1)) for o in self.store.on_date(d)]
         for o in occs:
+            if o.is_range:  # 기간 일정(여행)은 시간이 없어서 알림 대신 브리핑에서만 말한다
+                continue
             when = o.dt
             if not o.notified_flag("a") and when <= now < when + ON_TIME_WINDOW:
                 out.append(messages.on_time_message(st.user_name, o.title, st.character))
@@ -60,7 +62,10 @@ class Notifier(QObject):
         now = now or datetime.now()
         st = self.settings()
         name, cid = st.user_name, st.character
-        rest = [(o.title, o.time) for o in self.store.on_date(now.date()) if o.dt > now]
+        occs = self.store.on_date(now.date())
+        # 기간 일정(여행)은 시간 없이 맨 앞에: '제주 여행 (3일 중 2일째)'
+        rest = [(f"{o.title} ({o.span}일 중 {o.nth}일째)" if o.span > 1 else o.title, "") for o in occs if o.is_range]
+        rest += [(o.title, o.time) for o in occs if not o.is_range and o.dt > now]
         out = [messages.briefing_today(name, rest, cid)]
         ddays = [(s.title, (d - now.date()).days) for s, d in self.store.upcoming_ddays(now.date())]
         dmsg = messages.briefing_dday(ddays, cid)
@@ -71,7 +76,7 @@ class Notifier(QObject):
     def today_greeting(self, now: datetime | None = None) -> str | None:
         """실행 직후 오늘 남은 일정 요약."""
         now = now or datetime.now()
-        rest = [(s.title, s.time) for s in self.store.on_date(now.date()) if s.dt > now]
+        rest = [(s.title, s.time) for s in self.store.on_date(now.date()) if not s.is_range and s.dt > now]
         if not rest:
             return None
         return messages.today_summary(self.settings().user_name, rest)
