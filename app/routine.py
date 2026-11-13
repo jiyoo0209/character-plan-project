@@ -38,6 +38,9 @@ ROUTINE_IMAGES_DIR = CHARACTERS_DIR / "routine"
 _IMAGE_EXTS = (".png", ".gif", ".webp")
 _CATEGORY_KEYS = {name: key for name, key in CATEGORIES if key != "etc"}  # '일' → 'work' ('기타'는 평소 모습)
 
+_MEAL_WORDS = {"breakfast": "아침", "lunch": "점심", "dinner": "저녁"}
+MEAL_SAY_WITHIN_MIN = 5  # 밥 시작하고 이 안에만 한마디 (컴퓨터를 늦게 켰을 때 뒤늦게 말하지 않게)
+
 DAY_END = 24 * 60 - 1
 WAKE_BEFORE_MIN = 60  # 내 일정이 일찍 있으면 그 1시간 전에 기상
 SLEEP_AFTER_MIN = 60  # 내 일정이 늦게 있으면 그 1시간 뒤에 잠
@@ -50,6 +53,11 @@ class Meal:
     minute: int
     name: str  # breakfast / lunch / dinner … (그림 이름)
     label: str = ""
+    word: str = ""  # 말풍선에 쓰는 끼니 이름 (아침 / 점심 / 저녁 / 아점 …)
+
+    @property
+    def say(self) -> str:
+        return self.word or _MEAL_WORDS.get(self.name, "밥")
 
 
 @dataclass(frozen=True)
@@ -94,7 +102,8 @@ def load_routine(cid: str) -> Routine | None:
     meals = []
     for m in raw.get("meals", []) if isinstance(raw.get("meals"), list) else []:
         try:
-            meals.append(Meal(_parse_time(m["time"]), str(m["name"]).strip(), str(m.get("label", ""))))
+            meals.append(Meal(_parse_time(m["time"]), str(m["name"]).strip(), str(m.get("label", "")),
+                              str(m.get("word", "")).strip()))
         except (KeyError, TypeError, ValueError):
             continue  # 잘못 적힌 줄만 건너뛴다
     meals = [m for m in meals if m.name]
@@ -151,6 +160,20 @@ def current_action(r: Routine | None, plans: list[Plan], now: datetime) -> Actio
 
     if t < min(wake + WAKEUP_MIN, next_plan_from(wake)):
         return Action(("wakeup",), "일어나는 중")
+    return None
+
+
+def meal_break(r: Routine | None, plans: list[Plan], now: datetime) -> tuple[Meal, Plan] | None:
+    """일정 하던 중에 막 밥 시간이 됐으면 (그 밥, 하던 일정). 말풍선 한마디용."""
+    if r is None:
+        return None
+    t = now.hour * 60 + now.minute
+    wake, sleep = day_bounds(r, plans)
+    for meal in r.meals:
+        if wake <= meal.minute <= t < min(meal.minute + MEAL_SAY_WITHIN_MIN, sleep):
+            doing = [p for p in plans if p.minute <= meal.minute]
+            if doing and not doing[-1].done:  # 그때 하던 일정 (체크해서 끝낸 건 빼고)
+                return meal, doing[-1]
     return None
 
 

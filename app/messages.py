@@ -1,6 +1,7 @@
 """캐릭터 대사 만들기 (호격 조사, 시간 표현)."""
 from __future__ import annotations
 
+import random
 from datetime import date, datetime
 
 
@@ -52,6 +53,10 @@ VOICES: dict[str, dict[str, str]] = {
         "more": "· 그리고 {n}개 더…!",
         "dday_today": "와…! 오늘은 {title} D-day야! 힘내…!",
         "dday": "D-day도 있어…!",
+        # 일정 중에 밥 시간이 됐을 때 (셋 중 하나 무작위)
+        "meal_1": "{who}…! 나 배고파서 {meal} 먹을게…!\n{title_eun} 먹고 나서 마저 할게…!",
+        "meal_2": "꼬르륵…! {who}, {meal} 시간이야…!\n잠깐만 먹고 올게…!",
+        "meal_3": "와…! 밥이다…! {you_do} {meal} 꼭 챙겨 먹어…!",
     },
     "usagi": {
         "checking": "야하! 새 버전 찾아볼게!",
@@ -65,6 +70,9 @@ VOICES: dict[str, dict[str, str]] = {
         "more": "· 그리고 {n}개 더! 우라!",
         "dday_today": "우라! 오늘은 {title} D-day! 가자!",
         "dday": "야하! D-day도 있어!",
+        "meal_1": "야하! {who}! 배고파! {meal} 먹을래!\n{title_eun} 이따가! 우라!",
+        "meal_2": "하아? {meal} 시간이잖아! 먹자! 야하!",
+        "meal_3": "우라! {you_do} {meal} 먹어! 많이!",
     },
     "kurimanju": {
         "checking": "하아— 어디 한번 볼까.",
@@ -78,6 +86,10 @@ VOICES: dict[str, dict[str, str]] = {
         "more": "· 그리고 {n}개 더 있네.",
         "dday_today": "하아— 오늘이 {title} D-day로구먼. 힘내게나.",
         "dday": "하아— 등록된 D-day도 알려 주지.",
+        "meal_1": "하아— {who}, 배가 고프구먼.\n{meal}부터 먹고 {title} 마저 하세나.",
+        "meal_2": "하아— {meal} 시간이로구먼. 잠깐 쉬어 가지.",
+        "meal_3": "하아— {you_do} {meal}{eun} 거르지 말게나.",
+        "meal_dinner": "하아— 저녁엔 한잔 곁들여야지.\n{who}, {title} 잠깐 쉬었다 하세나.",  # 저녁일 때만 하나 더
     },
 }
 
@@ -89,6 +101,33 @@ def _line(cid: str, key: str, **kw) -> str:
 def hello_message(name: str, cid: str = "chiikawa") -> str:
     """처음 실행했을 때 인사."""
     return _line(cid, "hello", who=call_name(name))
+
+
+def _eun(word: str) -> str:
+    """받침 있으면 '은', 없으면 '는' (한글이 아니면 '은(는)')."""
+    b = _has_batchim(word.strip()[-1]) if word.strip() else None
+    return "은(는)" if b is None else ("은" if b else "는")
+
+
+def _you_do(name: str) -> str:
+    """'지은' -> '지은이도', '지유' -> '지유도', 이름 없으면 '너도'."""
+    name = name.strip()
+    if not name:
+        return "너도"
+    b = _has_batchim(name[-1])
+    return f"{name}도" if b is None else (f"{name}이도" if b else f"{name}도")
+
+
+def meal_message(name: str, meal: str, title: str, cid: str = "chiikawa", rng=random) -> str:
+    """일정 중에 밥 시간이 됐을 때 한마디. meal = '아점' / '점심' / '저녁' …, title = 하던 일정."""
+    voice = VOICES.get(cid, VOICES["chiikawa"])
+    keys = [k for k in ("meal_1", "meal_2", "meal_3") if k in voice]
+    if meal == "저녁" and "meal_dinner" in voice:
+        keys.append("meal_dinner")
+    title = title.strip() or "하던 거"
+    return voice[rng.choice(keys)].format(
+        who=call_name(name), meal=meal, eun=_eun(meal), title=title,
+        title_eun=f"{title}{_eun(title)}", you_do=_you_do(name))
 
 
 def update_check_message(kind: str, cid: str = "chiikawa", ver: str = "") -> str:
